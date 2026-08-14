@@ -78,7 +78,10 @@ jobs:
           curl -sSL -o sdl2.zip \
             https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-devel-2.30.9-VC.zip
           unzip -q sdl2.zip
-          echo "SDL2_ROOT_DIR=$PWD/SDL2-2.30.9" >> $GITHUB_ENV
+          # pwd -W, not $PWD: this step runs in bash and CMake runs in
+          # PowerShell, so the path has to leave here as D:/a/... rather than
+          # as /d/a/..., which CMake would silently fail to find anything under.
+          echo "SDL2_ROOT_DIR=$(pwd -W)/SDL2-2.30.9" >> $GITHUB_ENV
 
       - name: cmake
         run: >
@@ -113,6 +116,14 @@ jobs:
             install/bin/*gbsharp_emulator*.dll \
             install/bin/*gbsharp_emulator*.so \
             install/bin/*gbsharp_emulator*.dylib
+
+      # An archive without a Player is one `gbsharp publish` cannot use, and the
+      # way that happens is SDL quietly not being found, which skips the target
+      # rather than failing the build. Caught here instead of in a game.
+      - name: check the player is in the archive
+        shell: bash
+        run: |
+          test -n "$(find install/bin -name 'gbsharp-player*' -type f)"
 
       # Proves the stub in this archive starts and draws before it is published
       # to anyone. A stub that cannot play a ROM cannot play a published game
