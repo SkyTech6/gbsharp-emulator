@@ -39,7 +39,13 @@ def GitUpdate(repo, dirname, sha):
     Run('git', 'fetch', cwd=dirname)
   else:
     Run('git', 'clone', repo, dirname)
-  Run('git', 'checkout', sha, cwd=dirname)
+  # --force because these are scratch clones of somebody else's repository and
+  # the pinned sha is the only thing about them that matters. Without it a
+  # plain checkout refuses when the working tree differs from HEAD, which a
+  # fresh clone can manage on its own through line ending normalisation, and
+  # then the whole test suite fails to build for a reason that has nothing to
+  # do with the emulator.
+  Run('git', 'checkout', '--force', sha, cwd=dirname)
 
 def NMakeFound():
   for path in os.environ["PATH"].split(os.pathsep):

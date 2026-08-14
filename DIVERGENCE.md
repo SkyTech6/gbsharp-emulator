@@ -26,6 +26,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
 | [The GB# Player](#the-gb-player) | `player/`, `cmake/gbsharp.cmake` | New files | No |
 | [The web runtime](#the-web-runtime) | `web/`, `cmake/gbsharp.cmake` | New files | No |
+| [Forced checkout of test repositories](#forced-checkout-of-test-repositories) | `scripts/build_tests.py` | One word | Yes |
 
 ## Fork lineage
 
@@ -274,3 +275,19 @@ against itself. All four blargg ROMs it runs match, as does the native build,
 which is the evidence that there is one emulator here and not two.
 
 **Upstream candidate:** no.
+
+## Forced checkout of test repositories
+
+**Files:** `scripts/build_tests.py` (one argument)
+
+`GitUpdate` clones wla-dx and the mooneye test ROMs and checks out a pinned
+sha. A plain `git checkout` refuses when the working tree differs from HEAD,
+and a fresh clone manages that on its own through line ending normalisation, so
+CI started failing to build the test ROMs for a reason with nothing to do with
+the emulator.
+
+These are scratch clones of somebody else's repository and the pinned sha is
+the only thing about them anybody cares about, so `--force` is what the code
+meant in the first place.
+
+**Upstream candidate:** yes.
