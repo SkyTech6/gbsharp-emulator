@@ -21,6 +21,8 @@ symbols and changes no existing behaviour, which is what keeps
 | [Silenceable cart info log](#silenceable-cart-info-log) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [Declared memory accessors](#declared-memory-accessors) | `src/emulator.h` | Additive | Yes |
 | [Ext RAM size and battery queries](#ext-ram-size-and-battery-queries) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
+| [The GB# facade](#the-gb-facade) | `src/gbsharp.h`, `src/gbsharp.c` | New files | No |
+| [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
 
 ## Fork lineage
 
@@ -83,3 +85,83 @@ route at all to the battery flag even though `emulator_read_ext_ram` and
 state that is already there.
 
 **Upstream candidate:** yes.
+
+## The GB# facade
+
+**Files:** `src/gbsharp.h`, `src/gbsharp.c` (both new)
+
+The ABI GB# talks to, and the reason this fork exists. `gbsharp_emulator` is
+opaque and nothing from `emulator.h` appears in the header, so the emulator
+underneath can be replaced without the C# side noticing.
+
+Three things in it are deliberate rather than convenient:
+
+- **A ROM arrives as bytes, never as a path.** The core does not open files, so
+  storage policy belongs to the host. That is what lets one core serve a native
+  player, a browser and a test that touches no disk.
+- **`gbsharp_run_frame` advances 70224 ticks against an absolute deadline** and
+  consults no clock, then runs on to the end of the frame the PPU is drawing so
+  that the framebuffer never holds half of two frames. Upstream's `tester.c`
+  waits for that frame with no bound and would spin forever with the display
+  off; the facade allows one extra frame's ticks and then gives up. With that
+  loop the facade reproduces every screen hash in `scripts/test.json` for the
+  blargg suite byte for byte, which is the evidence that the ABI did not change
+  emulation.
+- **Audio is pulled.** `emulator_run_until` already stops when its buffer
+  fills; the facade drains that buffer after each frame and discards whatever
+  the host did not take. Upstream's `host.c` drives audio from an SDL callback,
+  which would tie emulation progress to a device and take determinism with it.
+
+`gbsharp_reset` builds a new `Emulator` over a fresh copy of the cartridge,
+because upstream has no reset and a power cycle is what reset means anyway. The
+cartridge copy is kept on the facade side for exactly this reason:
+`emulator_new` takes ownership of the buffer it is handed and may reallocate
+it, so the same pointer cannot be handed over twice.
+
+Nothing in either file changes upstream behaviour, and no upstream file
+includes them.
+
+**Upstream candidate:** no. It is a GB# ABI, not an emulator feature.
+
+## Library targets and release pipeline
+
+**Files:** `cmake/gbsharp.cmake` (new), `CMakeLists.txt` (one `include`),
+`scripts/check_gbsharp_library.py` (new),
+`.github/workflows/gbsharp.yml` (new),
+`.github/workflows/gbsharp-release.yml` (new)
+
+Builds the facade as a shared and a static library, in both flavours, with no
+SDL, no OpenGL and no imgui in the link:
+
+    gbsharp_emulator         emulator.c, no instrumentation
+    gbsharp_emulator_debug   emulator-debug.c, which includes emulator.c and
+                             compiles it again with hooks enabled
+
+Instrumentation is a compile time choice upstream, so it has to be two
+libraries rather than one flag. Both export the identical ABI and
+`gbsharp_has_debug_support` says which one loaded, which is what lets a single
+set of P/Invoke declarations serve both and lets GB# ship the fast one to
+players and the hooked one to tooling.
+
+The target definitions live in their own file, included from one line at the
+bottom of `CMakeLists.txt`, so upstream can rewrite that file freely and the
+only thing to reapply is that line.
+
+Two things enforce the no-SDL boundary rather than documenting it. The shared
+libraries are linked with `--no-undefined` on ELF, where undefined symbols
+would otherwise be deferred to load time, so adding `host.c` to the core
+sources becomes a link error on every platform. `scripts/check_gbsharp_library.py`
+then scans the built library for SDL, OpenGL and imgui, and for the full list
+of exported facade symbols, which catches the case where somebody adds the
+link libraries too. Hidden visibility keeps the export list to the facade
+itself, so the ABI is the header rather than whatever `emulator.c` left
+non-static.
+
+The release workflow builds `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`
+and `osx-arm64` on a tag and publishes archives plus an `emulator.lock.json`
+generated from the archives it actually uploaded. GB# verifies that checksum
+before it will load a library, and almost no GB# contributor will ever compile
+this repository, so CI is the only thing between a broken commit and a broken
+release.
+
+**Upstream candidate:** no.

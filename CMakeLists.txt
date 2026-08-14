@@ -184,3 +184,9 @@ else (EMSCRIPTEN)
     LINK_DEPENDS "${EXPORTED_JSON}"
   )
 endif ()
+
+# The GB# runtime library. Kept in its own file so that this one stays as
+# upstream wrote it; see DIVERGENCE.md.
+if (NOT EMSCRIPTEN)
+  include(gbsharp)
+endif ()

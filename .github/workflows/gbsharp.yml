@@ -1,0 +1,111 @@
+# Copyright (C) 2026 GB# contributors
+#
+# This software may be modified and distributed under the terms
+# of the MIT license.  See the LICENSE file for details.
+#
+# The GB# runtime, built on every commit. Separate from build.yml so that
+# upstream can rewrite its own CI without this needing a merge.
+#
+# Almost nobody will ever compile this repository: GB# fetches prebuilt
+# binaries, verified against a checksum. That makes CI the only thing standing
+# between a broken commit and a broken release, so it builds both flavours on
+# every platform we publish for, and runs upstream's own compatibility suite to
+# confirm the patches did not change emulation.
+name: GB# runtime
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-x64
+            os: macos-13
+          - rid: osx-arm64
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # No SDL and no imgui installed on purpose. If the runtime ever grows a
+      # dependency on either, this job stops being able to build it, which is
+      # the cheapest enforcement of the boundary there is.
+      - name: cmake
+        run: cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
+
+      - name: build both flavours
+        run: >
+          cmake --build out --config Release
+          --target gbsharp_emulator gbsharp_emulator_debug
+          gbsharp_emulator_static gbsharp_emulator_debug_static
+
+      # Visual Studio puts artifacts under a per-configuration directory and
+      # the single-config generators do not.
+      - name: locate libraries
+        shell: bash
+        run: |
+          if [ -d out/Release ]; then echo "libdir=out/Release" >> $GITHUB_ENV
+          else echo "libdir=out" >> $GITHUB_ENV
+          fi
+
+      - name: check the boundary
+        shell: bash
+        run: |
+          shopt -s nullglob
+          libs=(${{ env.libdir }}/*gbsharp_emulator*.dll
+                ${{ env.libdir }}/*gbsharp_emulator*.so
+                ${{ env.libdir }}/*gbsharp_emulator*.dylib)
+          if [ ${#libs[@]} -eq 0 ]; then
+            echo "no shared libraries were built"
+            exit 1
+          fi
+          python scripts/check_gbsharp_library.py "${libs[@]}"
+
+  # Upstream's own suite, which is the signal that says a GB# patch changed
+  # emulation rather than only adding to it. Kept to the platforms that can
+  # build wla-dx, which is what assembles the mooneye ROMs.
+  emulation:
+    name: compatibility suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install ninja-build
+
+      - name: cmake
+        run: cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: build the tester
+        run: cmake --build out --target binjgb-tester
+
+      - name: build the test roms
+        run: python scripts/build_tests.py
+
+      - name: run the suite
+        run: python scripts/tester.py -v --exe out/binjgb-tester
