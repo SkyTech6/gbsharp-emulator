@@ -20,6 +20,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [Fork lineage](#fork-lineage) | `NOTICE`, `DIVERGENCE.md` | Additive | No |
 | [Silenceable cart info log](#silenceable-cart-info-log) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [Declared memory accessors](#declared-memory-accessors) | `src/emulator.h` | Additive | Yes |
+| [Ext RAM size and battery queries](#ext-ram-size-and-battery-queries) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 
 ## Fork lineage
 
@@ -66,3 +67,19 @@ compiler checks the prototype against the definition. A duplicated extern
 would go stale silently.
 
 **Upstream candidate:** yes. It declares what already exists.
+
+## Ext RAM size and battery queries
+
+**Files:** `src/emulator.h`, `src/emulator.c` (two new functions)
+
+The facade has to answer "how many bytes of save RAM does this cartridge
+have, and is any of it worth writing to disk" without exposing `Emulator`.
+Upstream's only route to the size is `emulator_init_ext_ram_file_data`, which
+allocates a buffer as a side effect of being asked a question, and there is no
+route at all to the battery flag even though `emulator_read_ext_ram` and
+`emulator_write_ext_ram` already branch on it.
+
+`emulator_get_ext_ram_size` and `emulator_has_battery` are two accessors over
+state that is already there.
+
+**Upstream candidate:** yes.

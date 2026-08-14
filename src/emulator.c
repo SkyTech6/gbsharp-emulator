@@ -4969,6 +4969,14 @@ static Result set_rom_file_data(Emulator* e, const FileData* file_data) {
   ON_ERROR_RETURN;
 }
 
+size_t emulator_get_ext_ram_size(Emulator* e) {
+  return EXT_RAM.size;
+}
+
+Bool emulator_has_battery(Emulator* e) {
+  return EXT_RAM.battery_type == BATTERY_TYPE_WITH_BATTERY;
+}
+
 Bool emulator_was_ext_ram_updated(Emulator* e) {
   Bool result = e->state.ext_ram_updated;
   e->state.ext_ram_updated = FALSE;

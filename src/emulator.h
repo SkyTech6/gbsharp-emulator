@@ -233,6 +233,13 @@ void emulator_write_mem(Emulator*, Address, u8);
 
 Bool emulator_was_ext_ram_updated(Emulator*);
 
+/* Size in bytes of the cartridge's external RAM, and whether the cartridge
+ * has a battery to keep it. A cartridge without a battery still has RAM, but
+ * nothing about it is worth persisting, and emulator_read_ext_ram and
+ * emulator_write_ext_ram both no-op for one. */
+size_t emulator_get_ext_ram_size(Emulator*);
+Bool emulator_has_battery(Emulator*);
+
 void emulator_init_state_file_data(FileData*);
 void emulator_init_ext_ram_file_data(Emulator*, FileData*);
 Result emulator_read_state(Emulator*, const FileData*);
