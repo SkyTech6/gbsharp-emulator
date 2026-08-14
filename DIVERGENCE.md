@@ -18,6 +18,7 @@ symbols and changes no existing behaviour, which is what keeps
 | Patch | Files | Kind | Upstream candidate |
 |---|---|---|---|
 | [Fork lineage](#fork-lineage) | `NOTICE`, `DIVERGENCE.md` | Additive | No |
+| [Silenceable cart info log](#silenceable-cart-info-log) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 
 ## Fork lineage
 
@@ -28,3 +29,23 @@ meant to be used. Nothing else in the tree is touched, and neither file exists
 upstream, so this patch can never conflict.
 
 **Upstream candidate:** no. It is about the fork, not about binjgb.
+
+## Silenceable cart info log
+
+**Files:** `src/emulator.h` (one field), `src/emulator.c` (one call site)
+
+`emulator_new` writes ten lines of cart info to stdout through
+`log_cart_info`. That is useful in a command line emulator and wrong in a
+library: GB# creates an emulator per test, and a few hundred of those turn the
+test log into cart headers. Worse, a library that writes to stdout cannot be
+embedded in a tool whose stdout is its output.
+
+Adds `EmulatorInit::quiet_cart_info` and calls `log_cart_info` only when it is
+false. The flag is inverted on purpose so that zero means "log", which is what
+a `ZERO_MEMORY(init)` caller such as `binjgb.c` or `tester.c` already gets.
+No upstream behaviour changes.
+
+Per instance rather than a global, so it stays correct when a process holds
+several emulators on several threads, which the GB# test suite does.
+
+**Upstream candidate:** yes. Small, additive, and useful to any embedder.

@@ -169,6 +169,9 @@ typedef struct EmulatorInit {
   u32 builtin_palette;
   Bool force_dmg;
   CgbColorCurve cgb_color_curve;
+  /* Suppress the cart info dump that emulator_new otherwise writes to stdout.
+   * Zero keeps the logging, so a zeroed EmulatorInit behaves as before. */
+  Bool quiet_cart_info;
 } EmulatorInit;
 
 typedef struct EmulatorConfig {
