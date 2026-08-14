@@ -48,7 +48,8 @@ jobs:
 
       # No SDL and no imgui installed on purpose. If the runtime ever grows a
       # dependency on either, this job stops being able to build it, which is
-      # the cheapest enforcement of the boundary there is.
+      # the cheapest enforcement of the boundary there is. The Player, which
+      # does need SDL, is built by the job below.
       - name: cmake
         run: cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
 
@@ -79,6 +80,50 @@ jobs:
             exit 1
           fi
           python scripts/check_gbsharp_library.py "${libs[@]}"
+
+  # The Player is what a published game is, so "does it start and draw the
+  # game" has to be checked by something rather than assumed. It runs headless
+  # against SDL's dummy drivers, plays a ROM for a second of emulated time, and
+  # writes what was on screen.
+  player:
+    name: player
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # imgui, because upstream's debugger target joins the build as soon
+          # as SDL is found.
+          submodules: true
+
+      - name: install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install ninja-build libsdl2-dev
+
+      - name: cmake
+        run: cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: build
+        run: cmake --build out --target gbsharp-player
+
+      - name: play a rom
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: ./out/gbsharp-player test/blargg/cpu_instrs.gb --frames 60 --screenshot screen.bmp
+
+      # A file of the right size means frames reached the screen. An empty or
+      # missing one means the player exited before drawing anything, which an
+      # exit code alone would not have caught.
+      - name: check the screenshot
+        run: test -s screen.bmp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: player-screenshot
+          path: screen.bmp
+          if-no-files-found: error
 
   # Upstream's own suite, which is the signal that says a GB# patch changed
   # emulation rather than only adding to it. Kept to the platforms that can

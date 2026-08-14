@@ -111,3 +111,39 @@ install(FILES ${PROJECT_SOURCE_DIR}/src/gbsharp.h
   COMPONENT gbsharp
   DESTINATION include
 )
+
+# ---------------------------------------------------------------------------
+# The GB# Player: what a published game is.
+#
+# Links SDL2 and the runtime, and reaches the emulator only through gbsharp.h,
+# the same ABI the test harness and the web runtime use. It could link the core
+# directly, being in the same repository, and deliberately does not: the
+# boundary is worth more when the thing users actually run is on the far side
+# of it.
+#
+# Built only when SDL2 is present, so that the runtime, which is what almost
+# everybody consumes, still builds on a machine with no SDL at all.
+# ---------------------------------------------------------------------------
+if (SDL2_FOUND)
+  add_executable(gbsharp-player WIN32
+    ${PROJECT_SOURCE_DIR}/player/main.c
+    ${PROJECT_SOURCE_DIR}/player/config.c
+    ${PROJECT_SOURCE_DIR}/player/payload.c
+  )
+
+  set_property(TARGET gbsharp-player PROPERTY C_STANDARD 11)
+  target_include_directories(gbsharp-player PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/player
+  )
+
+  # The static flavour, so a published game is one file rather than a file plus
+  # a runtime library sitting next to it that a player could delete.
+  target_link_libraries(gbsharp-player gbsharp_emulator_static SDL2::SDL2
+                        SDL2::SDL2main)
+
+  install(TARGETS gbsharp-player COMPONENT gbsharp-player DESTINATION bin)
+  if (SDL2_DYNAMIC)
+    install(FILES ${SDL2_RUNTIME_LIBRARY} COMPONENT gbsharp-player DESTINATION bin)
+  endif ()
+endif ()

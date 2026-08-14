@@ -50,15 +50,41 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # imgui, because upstream's debugger target joins the build as soon
+          # as SDL is found, and the Player needs SDL.
+          submodules: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
+      # SDL2 is here for the Player alone. The runtime libraries must not link
+      # it, which scripts/check_gbsharp_library.py verifies below on the very
+      # machine where SDL is available to link against.
+      - name: install sdl2 (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsdl2-dev
+
+      - name: install sdl2 (macos)
+        if: runner.os == 'macOS'
+        run: brew install SDL2
+
+      - name: install sdl2 (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sSL -o sdl2.zip \
+            https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-devel-2.30.9-VC.zip
+          unzip -q sdl2.zip
+          echo "SDL2_ROOT_DIR=$PWD/SDL2-2.30.9" >> $GITHUB_ENV
+
       - name: cmake
         run: >
           cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INSTALL_PREFIX=install
+          ${{ runner.os == 'Windows' && format('-DSDL2_ROOT_DIR={0}', env.SDL2_ROOT_DIR) || '' }}
 
       - name: build both flavours
         run: >
@@ -66,10 +92,18 @@ jobs:
           --target gbsharp_emulator gbsharp_emulator_debug
           gbsharp_emulator_static gbsharp_emulator_debug_static
 
-      # The component, not everything: upstream's own executables are built by
+      # The stub `gbsharp publish` appends a game to. Shipped in the same
+      # archive as the runtime, so that fetching a platform's runtime is also
+      # fetching its player and one lock file covers both.
+      - name: build the player
+        run: cmake --build out --config Release --target gbsharp-player
+
+      # The components, not everything: upstream's own executables are built by
       # the same project and belong to nothing GB# ships.
       - name: install
-        run: cmake --install out --config Release --component gbsharp
+        run: |
+          cmake --install out --config Release --component gbsharp
+          cmake --install out --config Release --component gbsharp-player
 
       - name: check the boundary
         shell: bash
@@ -80,11 +114,26 @@ jobs:
             install/bin/*gbsharp_emulator*.so \
             install/bin/*gbsharp_emulator*.dylib
 
+      # Proves the stub in this archive starts and draws before it is published
+      # to anyone. A stub that cannot play a ROM cannot play a published game
+      # either, and finding that out here is much cheaper than finding it out
+      # in somebody's published game.
+      - name: check the player runs
+        if: runner.os != 'macOS'
+        shell: bash
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          player=$(find install/bin -name 'gbsharp-player*' -type f | head -1)
+          "$player" test/blargg/cpu_instrs.gb --frames 60 --screenshot screen.bmp
+          test -s screen.bmp
+
       # Debug info is not shipped: the archives are fetched by every GB#
       # contributor, so size is a cost they all pay.
       - name: strip
         if: runner.os != 'Windows'
-        run: find install -type f \( -name '*.so' -o -name '*.dylib' \) -exec strip -x {} +
+        run: find install -type f \( -name '*.so' -o -name '*.dylib' -o -name 'gbsharp-player' \) -exec strip -x {} +
 
       # Zip on Windows and tar.gz elsewhere, matching the GBDK archives that
       # tools/get-gbdk.ps1 already knows how to unpack.

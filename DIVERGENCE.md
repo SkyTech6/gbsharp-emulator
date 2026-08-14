@@ -24,6 +24,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [The GB# facade](#the-gb-facade) | `src/gbsharp.h`, `src/gbsharp.c` | New files | No |
 | [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
 | [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
+| [The GB# Player](#the-gb-player) | `player/`, `cmake/gbsharp.cmake` | New files | No |
 
 ## Fork lineage
 
@@ -198,3 +199,46 @@ trustworthy, and milestone 2's Player reuses the video and audio paths from
 `host.c`, so those files need to keep compiling.
 
 **Upstream candidate:** no. Upstream needs all of it.
+
+## The GB# Player
+
+**Files:** `player/main.c`, `player/payload.c`, `player/payload.h`,
+`player/config.c`, `player/config.h` (all new), `cmake/gbsharp.cmake` (one
+target)
+
+What a published GB# game is: a window, a sound device, a joypad, and nothing
+else. No ROM browser, no save states, no settings, no menu, because a player
+that offered those would be an emulator that happens to have a game in it.
+
+Three decisions in it are worth recording.
+
+**It goes through `gbsharp.h` rather than through `emulator.h`.** It sits in
+the same repository as the core and could link it directly. Reaching the
+emulator only through the ABI means the boundary is exercised by the thing
+users actually run, so a change that breaks the ABI breaks the Player too
+instead of quietly working here and failing in the browser and the test
+harness.
+
+**A game is one executable with its ROM appended to it.** `gbsharp publish`
+copies this stub and appends the ROM, the window settings, and a trailer; the
+Player reads its own file at startup and loads the ROM from memory through the
+same `gbsharp_load_rom` a test uses. Nothing is unpacked to disk and nothing is
+relinked, which is what lets publishing work for users with no C toolchain and
+work identically on every platform. `player/payload.h` documents the format.
+The costs, accepted knowingly: code signing has to happen after the append, so
+it belongs to `gbsharp publish`; and the icon and version metadata are baked
+into this stub.
+
+**The display does not pace the emulator.** A frame is due every 16.742706ms
+because that is 70224 ticks at 4194304Hz, and vsync only stops tearing. Pacing
+on the display instead would run a game 2.4 times too fast on a 144Hz monitor.
+
+`--frames` and `--screenshot` exist for CI, which needs to know that a stub
+starts and draws rather than merely failing to crash. Under `--frames` the
+error paths report through an exit code instead of a message box, since
+nothing is there to dismiss one.
+
+The target is built only when SDL2 is present, so the runtime, which is what
+almost everybody consumes, still builds on a machine with no SDL at all.
+
+**Upstream candidate:** no.
