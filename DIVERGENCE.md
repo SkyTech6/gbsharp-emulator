@@ -23,6 +23,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [Ext RAM size and battery queries](#ext-ram-size-and-battery-queries) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [The GB# facade](#the-gb-facade) | `src/gbsharp.h`, `src/gbsharp.c` | New files | No |
 | [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
+| [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
 
 ## Fork lineage
 
@@ -165,3 +166,35 @@ this repository, so CI is the only thing between a broken commit and a broken
 release.
 
 **Upstream candidate:** no.
+
+## Trimmed upstream CI
+
+**Files:** `.github/workflows/build.yml`, `.github/workflows/build_release.yml`
+(deleted)
+
+Upstream's CI serves upstream's audience, which includes projects GB# is not.
+What was removed and why:
+
+- **`build_release.yml`, deleted.** It builds the SDL application and uploads
+  tarballs to any release that gets created. GB# releases the runtime through
+  `gbsharp-release.yml`, so leaving this in place meant a GB# runtime release
+  could acquire `binjgb-ubuntu.tar.gz` as an asset. It has not happened only
+  because releases created with `GITHUB_TOKEN` do not trigger further
+  workflows; a release created by hand would have.
+- **The `rgbds-live` and `gbstudio` wasm variants, removed.** Both exist for
+  named downstream projects with their own compile-time configuration. GB# is
+  neither, and its web runtime will be its own target through the facade. The
+  plain wasm build stays, as the check that emcc can compile this core.
+- **The tag trigger on `build.yml`, removed.** `on: create: tags:` fired on
+  `gbsharp-v*` release tags and rebuilt the application, the imgui debugger and
+  the wasm module, none of which a runtime release contains.
+- **The compatibility suite, removed from `build.yml`.** It now runs once, in
+  `gbsharp.yml`, which is where a GB# patch changing emulation has to fail.
+  Running it twice more on two platforms was not adding a signal.
+
+What stays is the build of upstream's own application and wasm target on every
+commit. That is worth keeping: it is what makes a rebase onto `upstream-main`
+trustworthy, and milestone 2's Player reuses the video and audio paths from
+`host.c`, so those files need to keep compiling.
+
+**Upstream candidate:** no. Upstream needs all of it.

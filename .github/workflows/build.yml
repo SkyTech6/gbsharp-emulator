@@ -1,8 +1,13 @@
 name: CI
 
+# Upstream's own CI, kept so that a rebase onto upstream-main can be trusted:
+# it is what says binjgb's application and wasm target still build after a GB#
+# patch. See DIVERGENCE.md for what GB# trimmed from it.
+#
+# The tag trigger is gone. It fired on gbsharp-v* release tags and rebuilt the
+# SDL application, the imgui debugger and the wasm module, none of which a GB#
+# runtime release contains.
 on:
-  create:
-    tags:
   push:
     branches:
       - main
@@ -63,26 +68,19 @@ jobs:
     - name: build
       run: cmake --build out
 
-    - name: tests
-      run: |
-        python scripts/build_tests.py
-        python scripts/tester.py -vv --exe bin/binjgb-tester
-      if: matrix.os != 'windows-latest'
+    # The compatibility suite used to run here as well, on two platforms. It now
+    # runs once, in gbsharp.yml, which is the workflow that has to fail when a
+    # GB# patch changes emulation.
 
-  build-wasm-variants:
-    name: build-${{ matrix.target }}
+  # Upstream builds its wasm module three ways: plain, and once each for
+  # rgbds-live and GB Studio, which are downstream projects with their own needs.
+  # GB# is neither, and its own web runtime (milestone 3) will be its own target
+  # through the same facade, so those two variants were dropped rather than kept
+  # green for nobody. The plain build stays, because it is the check that emcc
+  # can compile this core at all.
+  build-wasm:
+    name: build-wasm
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [wasm, rgbds-live, gbstudio]
-        include:
-          - target: wasm
-            cmake_flags: ""
-          - target: rgbds-live
-            cmake_flags: '-DWERROR=ON -DRGBDS_LIVE=ON -DCMAKE_C_FLAGS="-DBREAKPOINTS_MAX_BANKS_NUMBER=256"'
-          - target: gbstudio
-            cmake_flags: "-DWERROR=ON -DGBSTUDIO=ON"
 
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +106,7 @@ jobs:
         run: mkdir -p out
 
       - name: cmake
-        run: emcmake cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DWASM=true ${{ matrix.cmake_flags }}
+        run: emcmake cmake -S . -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DWASM=true
 
       - name: build
         run: emmake cmake --build out
