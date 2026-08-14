@@ -1,0 +1,38 @@
+gbsharp-emulator
+================
+
+This repository is a fork of binjgb by Ben Smith:
+
+    https://github.com/binji/binjgb
+
+Forked from upstream commit c60e138da5a795ebb55e56b11b7e90024e41112c
+("BG viewer: Add support for flipped and bank1 tiles (#80)").
+
+binjgb is distributed under the MIT license. That license is reproduced
+verbatim in LICENSE and applies to this fork in full. Every copyright header
+in the inherited sources is left exactly as upstream wrote it, and every file
+added by this fork carries its own header rather than editing someone else's.
+
+    Copyright (c) 2016 Ben Smith
+
+The fork exists to serve GB#, a C# to Game Boy compiler:
+
+    https://github.com/SkyTech6/GBSharp
+
+It adds a stable C ABI (src/gbsharp.h) so that GB# can embed the emulator as
+a library, and it builds that library without SDL, OpenGL or imgui in the
+link. The emulation itself is upstream's work. Changes made here are listed
+one by one in DIVERGENCE.md, each with the reason GB# needs it and whether it
+is a candidate to send back.
+
+Any distribution that embeds this runtime, including a game published by GB#,
+must carry the MIT attribution above.
+
+Branches
+--------
+
+    upstream-main   Upstream's main, fast-forward only. Never commit here.
+    main            GB# work. Every commit that is not a merge from
+                    upstream-main has a "gbsharp:" subject prefix, so that
+                    "git log --oneline upstream-main..main" is exactly the
+                    list of things this fork changed.
