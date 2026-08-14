@@ -100,9 +100,19 @@ GBSHARP_API void gbsharp_destroy(gbsharp_emulator*);
  * Copies the ROM in and boots it. The caller's bytes are not retained, and a
  * second call replaces the cartridge, discarding all machine state.
  *
- * Returns false if the ROM is not a Game Boy ROM: too small, or with a header
- * the boot ROM would reject. Save RAM is left empty, so restore it with
- * gbsharp_write_save_ram after loading rather than before.
+ * Returns false when the bytes cannot be mapped as a cartridge at all: empty,
+ * larger than 8MB, or declaring a RAM size that no cartridge has.
+ *
+ * That is a low bar, and knowing where it sits matters more than wishing it
+ * were higher. The Nintendo logo and the header checksums are not checked,
+ * although a real boot ROM would check them, because homebrew and test ROMs
+ * with imperfect headers are exactly what an emulator is most needed for. A
+ * cartridge type byte that names no known mapper is treated as having no
+ * mapper rather than refused, for the same reason. A caller that wants boot ROM
+ * strictness has to check the header itself.
+ *
+ * Save RAM is left empty, so restore it with gbsharp_write_save_ram after
+ * loading rather than before.
  */
 GBSHARP_API bool gbsharp_load_rom(gbsharp_emulator*, const uint8_t* rom,
                                   size_t size);
