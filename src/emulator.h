@@ -225,6 +225,12 @@ void emulator_set_all_bw_palettes(Emulator*, const PaletteRGBA*);
 void emulator_ticks_to_time(Ticks, u32* day, u32* hr, u32* min, u32* sec,
                             u32* ms);
 
+/* Reads and writes as the debugger sees memory: through the memory map, but
+ * without the bus timing a real access would cost. Both are defined in
+ * emulator.c; only the wasm export list used to name them. */
+u8 emulator_read_mem(Emulator*, Address);
+void emulator_write_mem(Emulator*, Address, u8);
+
 Bool emulator_was_ext_ram_updated(Emulator*);
 
 void emulator_init_state_file_data(FileData*);

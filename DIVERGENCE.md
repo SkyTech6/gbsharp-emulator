@@ -19,6 +19,7 @@ symbols and changes no existing behaviour, which is what keeps
 |---|---|---|---|
 | [Fork lineage](#fork-lineage) | `NOTICE`, `DIVERGENCE.md` | Additive | No |
 | [Silenceable cart info log](#silenceable-cart-info-log) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
+| [Declared memory accessors](#declared-memory-accessors) | `src/emulator.h` | Additive | Yes |
 
 ## Fork lineage
 
@@ -49,3 +50,19 @@ Per instance rather than a global, so it stays correct when a process holds
 several emulators on several threads, which the GB# test suite does.
 
 **Upstream candidate:** yes. Small, additive, and useful to any embedder.
+
+## Declared memory accessors
+
+**Files:** `src/emulator.h` (two declarations)
+
+`emulator_read_mem` and `emulator_write_mem` are already defined in
+`emulator.c`, but no header declares them; only `src/emscripten/exported.json`
+names them. The facade needs untimed memory access in both library flavours,
+and `emulator_read_u8_raw` is not an option because it lives in
+`emulator-debug.c` and so exists in the debug flavour only.
+
+Declaring them rather than repeating the prototype in `gbsharp.c` means the
+compiler checks the prototype against the definition. A duplicated extern
+would go stale silently.
+
+**Upstream candidate:** yes. It declares what already exists.
