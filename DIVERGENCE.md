@@ -21,6 +21,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [Silenceable cart info log](#silenceable-cart-info-log) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [Declared memory accessors](#declared-memory-accessors) | `src/emulator.h` | Additive | Yes |
 | [Ext RAM size and battery queries](#ext-ram-size-and-battery-queries) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
+| [CPU location accessors](#cpu-location-accessors) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [The GB# facade](#the-gb-facade) | `src/gbsharp.h`, `src/gbsharp.c` | New files | No |
 | [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
 | [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
@@ -89,6 +90,33 @@ route at all to the battery flag even though `emulator_read_ext_ram` and
 state that is already there.
 
 **Upstream candidate:** yes.
+
+## CPU location accessors
+
+**Files:** `src/emulator.h`, `src/emulator.c`, `src/emulator-debug.h`,
+`src/emulator-debug.c`
+
+GB# turns a running address back into the C# line that produced it, by way of
+the bank and address pair a linker's `.sym` file records. Both halves of that
+pair already existed; neither could be asked for.
+
+`emulator_get_PC` is defined in `emulator.c` and was declared by no header,
+exactly the situation `emulator_read_mem` was in before the patch above. It is
+declared, not moved.
+
+`emulator_get_rom_bank` moves from `emulator-debug.c` to `emulator.c`, and its
+declaration from `emulator-debug.h` to `emulator.h`, with the body unchanged.
+It reads `MemoryMapState::rom_base`, which every build maintains and every MBC
+bank select updates, so nothing about it needed the instrumented flavour in
+the first place. The debugger still sees it, through the `emulator.h` that
+`emulator-debug.h` already includes.
+
+That is the whole point of the patch: asking where the CPU is should not
+require the instrumented build, because a caller that had to pay for hooks to
+read a register would simply never read it.
+
+**Upstream candidate:** yes. One declaration of an existing function, and one
+existing function compiled into both flavours instead of one.
 
 ## The GB# facade
 

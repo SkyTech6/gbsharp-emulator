@@ -55,7 +55,7 @@ extern "C" {
  * and fetched independently, so "close enough" has to be a load failure with a
  * message rather than a crash three calls later.
  */
-#define GBSHARP_ABI_VERSION 1
+#define GBSHARP_ABI_VERSION 2
 
 #define GBSHARP_SCREEN_WIDTH 160
 #define GBSHARP_SCREEN_HEIGHT 144
@@ -184,6 +184,28 @@ GBSHARP_API void gbsharp_set_button(gbsharp_emulator*, gbsharp_button,
 GBSHARP_API uint8_t gbsharp_read_memory(gbsharp_emulator*, uint16_t address);
 GBSHARP_API void gbsharp_write_memory(gbsharp_emulator*, uint16_t address,
                                       uint8_t value);
+
+/*
+ * Where the CPU is about to execute, and which ROM bank is mapped under a
+ * given address.
+ *
+ * Together these name a location the way a linker's `.sym` file does — bank
+ * and address — which is what lets a host turn a running program counter back
+ * into the symbol, and then the source line, that produced it.
+ *
+ * gbsharp_get_rom_bank answers for the region containing `address`: the fixed
+ * region below 0x4000, or the switchable one from 0x4000 to 0x7fff. It returns
+ * -1, never a bank number, when `address` is above the cartridge or when no
+ * cartridge is loaded, because bank 0 is a real answer and "there is no bank
+ * here" is not. Code does run outside the cartridge — a copy routine in HRAM,
+ * say — so this is a case a caller meets rather than a defensive one.
+ *
+ * Neither needs the instrumented flavour: the state they read is kept by the
+ * emulator core in every build. That is deliberate, because naming the code
+ * you are running should not cost the speed of running it.
+ */
+GBSHARP_API uint16_t gbsharp_get_pc(gbsharp_emulator*);
+GBSHARP_API int32_t gbsharp_get_rom_bank(gbsharp_emulator*, uint16_t address);
 
 /*
  * Bytes of battery backed cartridge RAM, or zero when the cartridge has no

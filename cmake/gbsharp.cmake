@@ -60,6 +60,8 @@ if (EMSCRIPTEN)
     _gbsharp_set_button
     _gbsharp_read_memory
     _gbsharp_write_memory
+    _gbsharp_get_pc
+    _gbsharp_get_rom_bank
     _gbsharp_save_ram_size
     _gbsharp_read_save_ram
     _gbsharp_write_save_ram

@@ -233,6 +233,17 @@ void emulator_write_mem(Emulator*, Address, u8);
 
 Bool emulator_was_ext_ram_updated(Emulator*);
 
+/* Where the CPU is, and which ROM bank is under a given address: 0x0000 to
+ * 0x3fff is the fixed region, 0x4000 to 0x7fff the switchable one, and
+ * anything above the cartridge reads as -1.
+ *
+ * emulator_get_PC is defined in emulator.c and was declared by no header, the
+ * same situation emulator_read_mem was in. emulator_get_rom_bank moved here
+ * from emulator-debug.c unchanged, so that naming the code you are running
+ * does not require the instrumented build. */
+u16 emulator_get_PC(Emulator*);
+int emulator_get_rom_bank(Emulator*, Address);
+
 /* Size in bytes of the cartridge's external RAM, and whether the cartridge
  * has a battery to keep it. A cartridge without a battery still has RAM, but
  * nothing about it is worth persisting, and emulator_read_ext_ram and

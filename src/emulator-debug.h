@@ -134,8 +134,6 @@ void emulator_set_breakpoint_address(Emulator*, int id, Address);
 void emulator_enable_breakpoint(int id, Bool enabled);
 void emulator_remove_breakpoint(int id);
 
-int emulator_get_rom_bank(Emulator*, Address);
-
 u8 emulator_read_u8_raw(Emulator*, Address);
 void emulator_write_u8_raw(Emulator*, Address, u8);
 

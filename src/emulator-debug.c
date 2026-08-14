@@ -483,15 +483,6 @@ void emulator_remove_breakpoint(int id) {
   --s_breakpoint_count;
 }
 
-int emulator_get_rom_bank(Emulator* e, Address addr) {
-  int region = addr >> ROM_BANK_SHIFT;
-  if (region < 2) {
-    return MMAP_STATE.rom_base[region] >> ROM_BANK_SHIFT;
-  } else {
-    return -1;
-  }
-}
-
 u8 emulator_read_u8_raw(Emulator* e, Address addr) {
   return read_u8_raw(e, addr);
 }

@@ -4977,6 +4977,15 @@ Bool emulator_has_battery(Emulator* e) {
   return EXT_RAM.battery_type == BATTERY_TYPE_WITH_BATTERY;
 }
 
+int emulator_get_rom_bank(Emulator* e, Address addr) {
+  int region = addr >> ROM_BANK_SHIFT;
+  if (region < 2) {
+    return MMAP_STATE.rom_base[region] >> ROM_BANK_SHIFT;
+  } else {
+    return -1;
+  }
+}
+
 Bool emulator_was_ext_ram_updated(Emulator* e) {
   Bool result = e->state.ext_ram_updated;
   e->state.ext_ram_updated = FALSE;

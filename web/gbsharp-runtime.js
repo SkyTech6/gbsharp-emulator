@@ -22,7 +22,7 @@ const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
 const AUDIO_FREQUENCY = 44100;
 const AUDIO_CHANNELS = 2;
-const ABI_VERSION = 1;
+const ABI_VERSION = 2;
 
 /* Audio frames pulled per call. One video frame is about 736 of them. */
 const AUDIO_PULL_FRAMES = 2048;
@@ -144,6 +144,17 @@ export class GameBoy {
 
   writeMemory(address, value) {
     this.module._gbsharp_write_memory(this.pointer, address, value);
+  }
+
+  /* Where the CPU is about to execute. */
+  get programCounter() {
+    return this.module._gbsharp_get_pc(this.pointer);
+  }
+
+  /* The ROM bank mapped under `address`, or zero above 0x7fff, where the
+   * address is not in the cartridge at all. */
+  romBankAt(address) {
+    return this.module._gbsharp_get_rom_bank(this.pointer, address);
   }
 
   /* Bytes of battery backed cartridge RAM, or zero when nothing is worth saving. */

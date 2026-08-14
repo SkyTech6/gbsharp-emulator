@@ -47,6 +47,8 @@ EXPECTED_EXPORTS = [
     'gbsharp_set_button',
     'gbsharp_read_memory',
     'gbsharp_write_memory',
+    'gbsharp_get_pc',
+    'gbsharp_get_rom_bank',
     'gbsharp_save_ram_size',
     'gbsharp_read_save_ram',
     'gbsharp_write_save_ram',

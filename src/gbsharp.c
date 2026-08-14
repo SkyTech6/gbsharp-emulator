@@ -305,6 +305,22 @@ void gbsharp_write_memory(gbsharp_emulator* e, uint16_t address,
   emulator_write_mem(e->core, address, value);
 }
 
+uint16_t gbsharp_get_pc(gbsharp_emulator* e) {
+  if (e == NULL || e->core == NULL) {
+    return 0;
+  }
+  return emulator_get_PC(e->core);
+}
+
+int32_t gbsharp_get_rom_bank(gbsharp_emulator* e, uint16_t address) {
+  if (e == NULL || e->core == NULL) {
+    return -1;
+  }
+  /* The core already answers this for an address, including the -1 for one
+   * that is not in the cartridge, so the facade only forwards it. */
+  return emulator_get_rom_bank(e->core, address);
+}
+
 size_t gbsharp_save_ram_size(gbsharp_emulator* e) {
   if (e == NULL || e->core == NULL || !emulator_has_battery(e->core)) {
     return 0;
