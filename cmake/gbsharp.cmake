@@ -25,6 +25,91 @@ set(GBSHARP_CORE_SOURCES
   ${PROJECT_SOURCE_DIR}/src/gbsharp.c
 )
 
+# ---------------------------------------------------------------------------
+# The web runtime: the same facade, the same emulator.c, through emcc.
+#
+# One ABI, two hosts. The exported function list below is the same fifteen
+# entry points gbsharp.h declares, so web/gbsharp.js can mirror the C ABI name
+# for name and a reader of one host can follow the other.
+#
+# malloc and free are exported alongside them because a ROM has to be copied
+# into the module's heap before gbsharp_load_rom can be handed a pointer to it.
+# That is the browser's version of "a ROM arrives as bytes, never as a path":
+# there is no filesystem here at all, and FILESYSTEM=0 makes sure none is
+# linked in to pretend otherwise.
+# ---------------------------------------------------------------------------
+if (EMSCRIPTEN)
+  add_executable(gbsharp_web
+    ${GBSHARP_CORE_SOURCES}
+    ${PROJECT_SOURCE_DIR}/src/emulator.c
+  )
+
+  target_include_directories(gbsharp_web PRIVATE ${PROJECT_SOURCE_DIR}/src)
+  set_property(TARGET gbsharp_web PROPERTY C_STANDARD 11)
+
+  set(GBSHARP_WEB_EXPORTS
+    _gbsharp_abi_version
+    _gbsharp_has_debug_support
+    _gbsharp_create
+    _gbsharp_destroy
+    _gbsharp_load_rom
+    _gbsharp_reset
+    _gbsharp_run_frame
+    _gbsharp_get_framebuffer
+    _gbsharp_get_audio
+    _gbsharp_set_button
+    _gbsharp_read_memory
+    _gbsharp_write_memory
+    _gbsharp_save_ram_size
+    _gbsharp_read_save_ram
+    _gbsharp_write_save_ram
+    _malloc
+    _free
+  )
+  string(REPLACE ";" "','" GBSHARP_WEB_EXPORTS_JS "${GBSHARP_WEB_EXPORTS}")
+
+  set(GBSHARP_WEB_LINK_FLAGS
+    "-sEXPORTED_FUNCTIONS=['${GBSHARP_WEB_EXPORTS_JS}']"
+    "-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAPU32','HEAP16']"
+    -sMODULARIZE=1
+    -sEXPORT_ES6=1
+    -sEXPORT_NAME=GBSharpRuntime
+    # web and node: the browser is what this is for, and node is what lets CI
+    # run the compatibility suite against the wasm build rather than trusting
+    # that it behaves like the native one.
+    -sENVIRONMENT=web,node
+    -sFILESYSTEM=0
+    -sEXIT_RUNTIME=0
+    -sALLOW_MEMORY_GROWTH=1
+    -sMALLOC=emmalloc
+    -sASSERTIONS=0
+    # One .wasm beside one .js, which is what `gbsharp publish web` emits and
+    # what --single-file then inlines.
+    -sWASM=1
+  )
+  string(REPLACE ";" " " GBSHARP_WEB_LINK_FLAGS_STRING "${GBSHARP_WEB_LINK_FLAGS}")
+
+  set_target_properties(gbsharp_web PROPERTIES
+    OUTPUT_NAME gbsharp
+    SUFFIX ".js"
+    LINK_FLAGS "${GBSHARP_WEB_LINK_FLAGS_STRING}"
+  )
+
+  # The module, the wasm beside it, and the hand-written wrapper that gives the
+  # three of them a shape a host can use.
+  install(FILES
+      ${CMAKE_CURRENT_BINARY_DIR}/gbsharp.js
+      ${CMAKE_CURRENT_BINARY_DIR}/gbsharp.wasm
+      ${PROJECT_SOURCE_DIR}/web/gbsharp-runtime.js
+      ${PROJECT_SOURCE_DIR}/src/gbsharp.h
+    COMPONENT gbsharp-web
+    DESTINATION web
+  )
+
+  # Nothing below this line applies to a browser.
+  return ()
+endif ()
+
 # Names the artifacts, exports only the facade, and refuses to link if anything
 # in the sources reached for a symbol we did not intend to depend on.
 function (gbsharp_configure_library name kind)

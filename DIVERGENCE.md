@@ -25,6 +25,7 @@ symbols and changes no existing behaviour, which is what keeps
 | [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
 | [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
 | [The GB# Player](#the-gb-player) | `player/`, `cmake/gbsharp.cmake` | New files | No |
+| [The web runtime](#the-web-runtime) | `web/`, `cmake/gbsharp.cmake` | New files | No |
 
 ## Fork lineage
 
@@ -240,5 +241,36 @@ nothing is there to dismiss one.
 
 The target is built only when SDL2 is present, so the runtime, which is what
 almost everybody consumes, still builds on a machine with no SDL at all.
+
+**Upstream candidate:** no.
+
+## The web runtime
+
+**Files:** `web/gbsharp-runtime.js`, `web/check-wasm.mjs` (both new),
+`cmake/gbsharp.cmake` (an emscripten branch)
+
+The same `src/gbsharp.c` and the same `src/emulator.c` through emcc, plus a JS
+module in which every method is one entry point of `gbsharp.h` under the same
+name. That correspondence is the point: a host written against the C ABI and a
+host written against this one are the same program, so somebody reading either
+can follow the other.
+
+Upstream already has `src/emscripten/wrapper.c`, and this does not use it. That
+wrapper exposes `Emulator*` and upstream's own function set, which is precisely
+what the facade exists to hide; going through it would have given the browser a
+different emulator interface from the one the native player and the test
+harness use, and then there would be two.
+
+`malloc` and `free` are exported alongside the facade because a ROM has to be
+copied into the module's heap before `gbsharp_load_rom` can be handed a pointer
+to it. That is the browser's version of "a ROM arrives as bytes, never as a
+path", and `-sFILESYSTEM=0` makes sure no filesystem is linked in to pretend
+otherwise.
+
+`web/check-wasm.mjs` runs a ROM through the module under node and prints the
+SHA1 of the screen in the format `tester.c` writes, so CI compares the wasm
+build against the hashes upstream records for its own tester rather than
+against itself. All four blargg ROMs it runs match, as does the native build,
+which is the evidence that there is one emulator here and not two.
 
 **Upstream candidate:** no.

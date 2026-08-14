@@ -20,6 +20,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The same emscripten upstream's own CI pins, so the two wasm builds in this
+# repository are built by one compiler rather than two.
+env:
+  EM_VERSION: 4.0.8
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
 jobs:
   build:
     name: ${{ matrix.rid }}
@@ -124,6 +130,59 @@ jobs:
           name: player-screenshot
           path: screen.bmp
           if-no-files-found: error
+
+  # The same facade through emcc. "It compiles" would be a weak claim for a
+  # second build of an emulator, so this runs blargg's ROMs through the wasm
+  # module under node and compares the screen hashes to the ones upstream
+  # records for its own tester. Same pixels or the job fails.
+  web:
+    name: web runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install packages
+        run: sudo apt-get install ninja-build
+
+      - name: setup cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.EM_CACHE_FOLDER }}
+          key: ${{ env.EM_VERSION }}-${{ runner.os }}
+
+      - name: emsdk install
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EM_VERSION }}
+          actions-cache-folder: ${{ env.EM_CACHE_FOLDER }}
+
+      - name: cmake
+        run: emcmake cmake -S . -B out-web -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: build
+        run: cmake --build out-web --target gbsharp_web
+
+      - name: check the wasm emulates
+        working-directory: web
+        run: |
+          set -e
+          check() {
+            actual=$(node check-wasm.mjs ../out-web/gbsharp.js "../$1" "$2")
+            if [ "$actual" != "$3" ]; then
+              echo "$1: expected $3, got $actual"
+              exit 1
+            fi
+            echo "$1: $actual"
+          }
+          check test/blargg/cpu_instrs.gb   1780 58d90d7561c7d2de728b999b8d5dd74bb6e86598
+          check test/blargg/instr_timing.gb   42 e84c9fce1dfba5ae7786a45db463032205dcc10c
+          check test/blargg/mem_timing.gb    170 560d7c80641e5ed2c0fda7309d15f8b4de47ce8d
+          check test/blargg/halt_bug.gb      105 51b3c49c21a7d58856fa010185f3311e61e93e41
 
   # Upstream's own suite, which is the signal that says a GB# patch changed
   # emulation rather than only adding to it. Kept to the platforms that can

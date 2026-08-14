@@ -185,8 +185,7 @@ else (EMSCRIPTEN)
   )
 endif ()
 
-# The GB# runtime library. Kept in its own file so that this one stays as
-# upstream wrote it; see DIVERGENCE.md.
-if (NOT EMSCRIPTEN)
-  include(gbsharp)
-endif ()
+# The GB# runtime. Kept in its own file so that this one stays as upstream
+# wrote it; see DIVERGENCE.md. It builds native libraries and the Player, or a
+# wasm module, depending on which compiler is driving.
+include(gbsharp)

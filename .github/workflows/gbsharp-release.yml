@@ -27,6 +27,11 @@ on:
 permissions:
   contents: write
 
+# The same emscripten upstream's own CI pins.
+env:
+  EM_VERSION: 4.0.8
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
 jobs:
   build:
     name: ${{ matrix.rid }}
@@ -164,9 +169,67 @@ jobs:
           path: gbsharp-emulator-${{ matrix.rid }}.*
           if-no-files-found: error
 
+  # The web runtime is one archive rather than one per platform: wasm is the
+  # same bytes everywhere, which is most of the point of it.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install packages
+        run: sudo apt-get install ninja-build
+
+      - name: setup cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.EM_CACHE_FOLDER }}
+          key: ${{ env.EM_VERSION }}-${{ runner.os }}
+
+      - name: emsdk install
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EM_VERSION }}
+          actions-cache-folder: ${{ env.EM_CACHE_FOLDER }}
+
+      - name: cmake
+        run: >
+          emcmake cmake -S . -B out-web -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=install-web
+
+      - name: build
+        run: cmake --build out-web --target gbsharp_web
+
+      - name: install
+        run: cmake --install out-web --component gbsharp-web
+
+      # Same check as CI, on the artifact about to be published rather than on
+      # a build of the same commit.
+      - name: check the wasm emulates
+        working-directory: web
+        run: |
+          actual=$(node check-wasm.mjs ../out-web/gbsharp.js ../test/blargg/cpu_instrs.gb 1780)
+          test "$actual" = "58d90d7561c7d2de728b999b8d5dd74bb6e86598"
+
+      - name: archive
+        run: tar -czf gbsharp-emulator-web.tar.gz -C install-web .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gbsharp-emulator-web
+          path: gbsharp-emulator-web.tar.gz
+          if-no-files-found: error
+
   release:
     name: publish
-    needs: build
+    needs: [build, web]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
