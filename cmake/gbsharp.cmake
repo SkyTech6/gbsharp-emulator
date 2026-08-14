@@ -92,13 +92,22 @@ set_target_properties(gbsharp_emulator_debug_static PROPERTIES
 # The layout tools/get-emulator.ps1 expects to find inside a release archive:
 # the loadable libraries next to each other, and the one header that describes
 # them.
+#
+# Its own component, so that "cmake --install out --component gbsharp" produces
+# exactly the runtime. A plain install would also carry upstream's binjgb
+# executables, which a GB# release archive has no use for and which would make
+# every contributor download an SDL emulator they did not ask for.
 install(TARGETS
     gbsharp_emulator
     gbsharp_emulator_debug
     gbsharp_emulator_static
     gbsharp_emulator_debug_static
+  COMPONENT gbsharp
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION bin
   ARCHIVE DESTINATION lib
 )
-install(FILES ${PROJECT_SOURCE_DIR}/src/gbsharp.h DESTINATION include)
+install(FILES ${PROJECT_SOURCE_DIR}/src/gbsharp.h
+  COMPONENT gbsharp
+  DESTINATION include
+)

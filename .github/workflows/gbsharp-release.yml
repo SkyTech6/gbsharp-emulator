@@ -66,8 +66,10 @@ jobs:
           --target gbsharp_emulator gbsharp_emulator_debug
           gbsharp_emulator_static gbsharp_emulator_debug_static
 
+      # The component, not everything: upstream's own executables are built by
+      # the same project and belong to nothing GB# ships.
       - name: install
-        run: cmake --install out --config Release
+        run: cmake --install out --config Release --component gbsharp
 
       - name: check the boundary
         shell: bash
