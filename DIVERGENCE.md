@@ -22,6 +22,10 @@ symbols and changes no existing behaviour, which is what keeps
 | [Declared memory accessors](#declared-memory-accessors) | `src/emulator.h` | Additive | Yes |
 | [Ext RAM size and battery queries](#ext-ram-size-and-battery-queries) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
 | [CPU location accessors](#cpu-location-accessors) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
+| [Cartridge RAM bank query](#cartridge-ram-bank-query) | `src/emulator.h`, `src/emulator.c` | Additive | Yes |
+| [Breakpoint bank selection](#breakpoint-bank-selection) | `src/emulator-debug.h`, `src/emulator-debug.c` | Additive | Yes |
+| [Reused breakpoints keep a stale hit flag](#reused-breakpoints-keep-a-stale-hit-flag) | `src/emulator-debug.c` | Bug fix | Yes |
+| [Cycle attribution in the profiler](#cycle-attribution-in-the-profiler) | `src/emulator-debug.h`, `src/emulator-debug.c` | Additive | Yes |
 | [The GB# facade](#the-gb-facade) | `src/gbsharp.h`, `src/gbsharp.c` | New files | No |
 | [Library targets and release pipeline](#library-targets-and-release-pipeline) | `cmake/gbsharp.cmake`, `CMakeLists.txt`, `scripts/`, `.github/workflows/` | Additive | No |
 | [Trimmed upstream CI](#trimmed-upstream-ci) | `.github/workflows/build.yml`, `.github/workflows/build_release.yml` | Removal | No |
@@ -117,6 +121,88 @@ read a register would simply never read it.
 
 **Upstream candidate:** yes. One declaration of an existing function, and one
 existing function compiled into both flavours instead of one.
+
+## Cartridge RAM bank query
+
+**Files:** `src/emulator.h`, `src/emulator.c` (one new function)
+
+`emulator_get_ext_ram_bank`, the counterpart of `emulator_get_rom_bank` above,
+reading `MemoryMapState::ext_ram_base` the same way and for the same reason.
+With the ROM bank it is all of the MBC state a caller can act on: everything
+else an MBC holds is latched input to these two.
+
+**Upstream candidate:** yes. An accessor over existing state.
+
+## Breakpoint bank selection
+
+**Files:** `src/emulator-debug.h`, `src/emulator-debug.c` (one new function)
+
+`emulator_set_breakpoint_address` records `emulator_get_rom_bank(e, addr)` —
+the bank that happens to be mapped as the call is made. There is therefore no
+way to set a breakpoint on code in a bank that is not currently switched in,
+which is the normal case for GB#, because a breakpoint placed from a linker
+map is placed before the code has ever run.
+
+`emulator_set_breakpoint_bank` sets the field directly. No mask to recalculate:
+the breakpoint mask is over addresses, and the bank is compared separately once
+an address matches.
+
+**Upstream candidate:** yes. It closes a hole in upstream's own breakpoint API,
+which its debugger works around by only breaking in mapped banks.
+
+## Reused breakpoints keep a stale hit flag
+
+**Files:** `src/emulator-debug.c` (one line)
+
+`hit_breakpoint` skips a breakpoint whose `hit` flag is already set, so that
+stopping at one and resuming does not immediately stop at it again. The flag is
+cleared by that skip, not by removal, and `emulator_add_empty_breakpoint`
+resets every field of a recycled slot except this one.
+
+A breakpoint that lands in a slot whose previous occupant was hit therefore
+misses the first time it is reached. For an address reached repeatedly the
+symptom is one skipped stop and nothing worse, which is presumably why it has
+gone unnoticed. For an address reached exactly once — the entry point of a
+function that runs once and then loops, which is precisely what GB# places
+breakpoints on from a linker map — the breakpoint never fires at all.
+
+Found by a test that passed alone and failed in a suite, which is the shape
+this bug has to have: it needs a previous breakpoint to have been hit.
+
+**Upstream candidate:** yes. A one-line fix to a real bug.
+
+## Cycle attribution in the profiler
+
+**Files:** `src/emulator-debug.h`, `src/emulator-debug.c`
+
+Upstream counts how many times the instruction at each ROM address ran, in
+`s_profiling_counters`. A count is not a cost, and the two rank code
+differently: a handful of 20 tick calls outweighs a great many 4 tick loads,
+so a profile by count points at the wrong code. Anything asking "where did the
+frame budget go" wants ticks.
+
+`s_profiling_cycles` is a second array of the same shape, filled in the hook
+that already fires per instruction. An instruction's cost is measured from its
+own hook to the next one, because that is the only point at which the clock has
+finished advancing for it. Interrupt dispatch therefore lands on the
+instruction it interrupted, which is where it belongs: that instruction is when
+the cost was paid, whoever asked for it. Code executing from RAM has no ROM
+address to bill, so it closes the previous measurement and opens none.
+
+Also adds `emulator_clear_profiling_counters`, which upstream never needed
+because its debugger reads the counters and never resets them. A profile of one
+scene rather than of a whole session needs a reset, and clearing has to also
+drop the in-flight measurement or the first instruction after it is billed for
+every tick since the last one.
+
+This is the one patch here that adds state rather than exposing it: another
+`MAXIMUM_ROM_SIZE` array of `u32`, so the instrumented flavour's BSS grows by
+32MB. It is zero fill, so the pages are committed only for the part of the ROM
+that actually executes, and only in the flavour that is already paying for
+hooks on every instruction.
+
+**Upstream candidate:** yes, though it is the largest of these and the one
+upstream is most likely to want to shape differently.
 
 ## The GB# facade
 

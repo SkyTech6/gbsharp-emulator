@@ -432,6 +432,12 @@ int emulator_add_empty_breakpoint(void) {
       bp->addr = bp->bank = 0;
       bp->enabled = FALSE;
       bp->valid = TRUE;
+      /* A slot is reused, and hit_breakpoint skips a breakpoint whose hit flag
+       * is already set so that stopping at one does not stop again on resume.
+       * Left over from the previous occupant of this slot, that flag makes a
+       * fresh breakpoint miss the first time it is reached -- which for an
+       * address reached exactly once means it never fires at all. */
+      bp->hit = FALSE;
       s_breakpoint_max_id = MAX(id + 1, s_breakpoint_max_id);
       ++s_breakpoint_count;
       return id;
@@ -458,6 +464,15 @@ void emulator_set_breakpoint_address(Emulator* e, int id, Address addr) {
   bp->addr = addr;
   bp->bank = emulator_get_rom_bank(e, addr);
   calculate_breakpoint_mask();
+}
+
+void emulator_set_breakpoint_bank(int id, u8 bank) {
+  if (!is_breakpoint_valid(id)) {
+    return;
+  }
+  /* No mask to recalculate: the mask is over addresses only, and the bank is
+   * compared separately once an address matches. */
+  s_breakpoints[id].bank = bank;
 }
 
 void emulator_enable_breakpoint(int id, Bool enabled) {
@@ -616,6 +631,24 @@ static u32 s_cb_opcode_count[256];
 static Bool s_profiling_enabled = FALSE;
 static u32 s_profiling_counters[MAXIMUM_ROM_SIZE];
 
+/*
+ * Ticks attributed to each ROM address, alongside the execution counts above.
+ *
+ * A count says how often an instruction ran; it does not say what it cost, and
+ * the two rank code differently — a handful of 20 tick calls outweighs a great
+ * many 4 tick loads. Anything asking "where did the frame budget go" wants
+ * this array and not that one.
+ *
+ * An instruction's cost is measured from its own hook to the next one, because
+ * that is the only point at which the clock has finished advancing for it.
+ * Interrupt dispatch therefore lands on the instruction it interrupted, which
+ * is where a profiler should put it: that instruction is when the cost was
+ * paid, whoever asked for it.
+ */
+static u32 s_profiling_cycles[MAXIMUM_ROM_SIZE];
+static u32 s_profiling_last_addr = INVALID_ROM_ADDR;
+static Ticks s_profiling_last_ticks = 0;
+
 Bool emulator_get_opcode_count_enabled(void) {
   return s_opcode_count_enabled;
 }
@@ -640,10 +673,23 @@ Bool emulator_get_profiling_enabled(void) {
 
 void emulator_set_profiling_enabled(Bool enable) {
   s_profiling_enabled = enable;
+  /* Turning profiling off leaves an instruction mid-measurement, and turning
+   * it back on later would bill it for every tick in between. */
+  s_profiling_last_addr = INVALID_ROM_ADDR;
 }
 
 u32* emulator_get_profiling_counters(void) {
   return s_profiling_counters;
+}
+
+u32* emulator_get_profiling_cycles(void) {
+  return s_profiling_cycles;
+}
+
+void emulator_clear_profiling_counters(void) {
+  memset(s_profiling_counters, 0, sizeof(s_profiling_counters));
+  memset(s_profiling_cycles, 0, sizeof(s_profiling_cycles));
+  s_profiling_last_addr = INVALID_ROM_ADDR;
 }
 
 void HOOK_exec_op_ai(Emulator* e, const char* func_name, Address pc,
@@ -653,8 +699,21 @@ void HOOK_exec_op_ai(Emulator* e, const char* func_name, Address pc,
   if (s_opcode_count_enabled) {
     s_opcode_count[opcode]++;
   }
-  if (s_profiling_enabled && rom_addr != INVALID_ROM_ADDR) {
-    s_profiling_counters[rom_addr]++;
+  if (s_profiling_enabled) {
+    /* Bill the previous instruction for everything the clock did while it was
+     * the one running. An instruction in RAM has no ROM address to bill, so it
+     * closes the previous measurement and opens none of its own. */
+    Ticks now = e->state.ticks;
+    if (s_profiling_last_addr != INVALID_ROM_ADDR) {
+      s_profiling_cycles[s_profiling_last_addr] +=
+          (u32)(now - s_profiling_last_ticks);
+    }
+    s_profiling_last_addr = rom_addr;
+    s_profiling_last_ticks = now;
+
+    if (rom_addr != INVALID_ROM_ADDR) {
+      s_profiling_counters[rom_addr]++;
+    }
   }
 }
 

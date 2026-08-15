@@ -4977,6 +4977,13 @@ Bool emulator_has_battery(Emulator* e) {
   return EXT_RAM.battery_type == BATTERY_TYPE_WITH_BATTERY;
 }
 
+int emulator_get_ext_ram_bank(Emulator* e) {
+  /* ext_ram_base is a byte offset into cartridge RAM, built by
+   * set_ext_ram_bank as the bank shifted up by the bank size, so shifting it
+   * back is exact. */
+  return MMAP_STATE.ext_ram_base >> EXT_RAM_BANK_SHIFT;
+}
+
 int emulator_get_rom_bank(Emulator* e, Address addr) {
   int region = addr >> ROM_BANK_SHIFT;
   if (region < 2) {

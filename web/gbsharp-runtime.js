@@ -22,7 +22,7 @@ const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
 const AUDIO_FREQUENCY = 44100;
 const AUDIO_CHANNELS = 2;
-const ABI_VERSION = 2;
+const ABI_VERSION = 3;
 
 /* Audio frames pulled per call. One video frame is about 736 of them. */
 const AUDIO_PULL_FRAMES = 2048;
@@ -95,8 +95,14 @@ export class GameBoy {
     this.module._gbsharp_reset(this.pointer);
   }
 
+  /* Returns why it stopped, as Event flags. A player can ignore it. */
   runFrame() {
-    this.module._gbsharp_run_frame(this.pointer);
+    return this.module._gbsharp_run_frame(this.pointer);
+  }
+
+  /* Executes one instruction, returning why it stopped. */
+  step() {
+    return this.module._gbsharp_step(this.pointer);
   }
 
   /*
@@ -205,6 +211,15 @@ export const Button = Object.freeze({
   B: 5,
   Select: 6,
   Start: 7,
+});
+
+/* gbsharp_event, the flags runFrame and step return. */
+export const Event = Object.freeze({
+  NewFrame: 0x1,
+  AudioBufferFull: 0x2,
+  UntilTicks: 0x4,
+  Breakpoint: 0x8,
+  InvalidOpcode: 0x10,
 });
 
 export const Screen = Object.freeze({

@@ -244,6 +244,10 @@ Bool emulator_was_ext_ram_updated(Emulator*);
 u16 emulator_get_PC(Emulator*);
 int emulator_get_rom_bank(Emulator*, Address);
 
+/* The cartridge RAM bank mapped at 0xa000. Reads the base the memory map
+ * already maintains, as emulator_get_rom_bank does for ROM. */
+int emulator_get_ext_ram_bank(Emulator*);
+
 /* Size in bytes of the cartridge's external RAM, and whether the cartridge
  * has a battery to keep it. A cartridge without a battery still has RAM, but
  * nothing about it is worth persisting, and emulator_read_ext_ram and

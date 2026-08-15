@@ -62,6 +62,17 @@ if (EMSCRIPTEN)
     _gbsharp_write_memory
     _gbsharp_get_pc
     _gbsharp_get_rom_bank
+    _gbsharp_get_ram_bank
+    _gbsharp_get_rom_size
+    _gbsharp_get_registers
+    _gbsharp_step
+    _gbsharp_add_breakpoint
+    _gbsharp_remove_breakpoint
+    _gbsharp_clear_breakpoints
+    _gbsharp_set_profiling_enabled
+    _gbsharp_get_profiling_enabled
+    _gbsharp_clear_profile
+    _gbsharp_read_profile
     _gbsharp_save_ram_size
     _gbsharp_read_save_ram
     _gbsharp_write_save_ram

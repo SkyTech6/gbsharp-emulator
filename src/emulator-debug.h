@@ -117,7 +117,13 @@ u32* emulator_get_cb_opcode_count(void);
 
 Bool emulator_get_profiling_enabled(void);
 void emulator_set_profiling_enabled(Bool enable);
+
+/* Two arrays of MAXIMUM_ROM_SIZE, indexed by ROM address: how many times the
+ * instruction there ran, and how many ticks were spent on it. Counts rank by
+ * how busy code is, cycles by what it costs, and they do not agree. */
 u32* emulator_get_profiling_counters(void);
+u32* emulator_get_profiling_cycles(void);
+void emulator_clear_profiling_counters(void);
 
 void emulator_get_opcode_mnemonic(u16 opcode, char* buffer, size_t size);
 int emulator_disassemble(Emulator*, Address, char* buffer, size_t size);
@@ -131,6 +137,12 @@ Breakpoint emulator_get_breakpoint_by_address(Emulator*, Address addr);
 int emulator_add_empty_breakpoint(void);
 int emulator_add_breakpoint(Emulator*, Address, Bool enabled);
 void emulator_set_breakpoint_address(Emulator*, int id, Address);
+
+/* The bank a breakpoint applies to, independent of which bank is mapped now.
+ * emulator_set_breakpoint_address can only record the bank that happens to be
+ * mapped as it is called, so without this there is no way to break on code in
+ * a bank that is not currently switched in. */
+void emulator_set_breakpoint_bank(int id, u8 bank);
 void emulator_enable_breakpoint(int id, Bool enabled);
 void emulator_remove_breakpoint(int id);
 

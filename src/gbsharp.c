@@ -9,6 +9,26 @@
 #include "emulator.h"
 #include "memory.h"
 
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+#include "emulator-debug.h"
+#endif
+
+/*
+ * gbsharp.h mirrors the core's event values rather than including its header.
+ * Mirrored constants drift; these cannot, because the build stops if they do.
+ */
+#define GBSHARP_STATIC_ASSERT(x) _Static_assert(x, #x)
+
+GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_NEW_FRAME == EMULATOR_EVENT_NEW_FRAME);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_AUDIO_BUFFER_FULL ==
+                      EMULATOR_EVENT_AUDIO_BUFFER_FULL);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_UNTIL_TICKS ==
+                      EMULATOR_EVENT_UNTIL_TICKS);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_BREAKPOINT ==
+                      EMULATOR_EVENT_BREAKPOINT);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_INVALID_OPCODE ==
+                      EMULATOR_EVENT_INVALID_OPCODE);
+
 /*
  * How much audio the core is allowed to buffer, in frames of one sample per
  * channel. One video frame is PPU_FRAME_TICKS worth, which at 44100Hz is a
@@ -172,9 +192,9 @@ void gbsharp_reset(gbsharp_emulator* e) {
   apply_buttons(e);
 }
 
-void gbsharp_run_frame(gbsharp_emulator* e) {
+uint32_t gbsharp_run_frame(gbsharp_emulator* e) {
   if (e == NULL || e->core == NULL) {
-    return;
+    return 0;
   }
 
   /* This frame's audio starts empty. Whatever the host did not pull from the
@@ -217,13 +237,28 @@ void gbsharp_run_frame(gbsharp_emulator* e) {
     EmulatorEvent event =
         emulator_run_until(e->core, past_deadline ? give_up_at : e->deadline);
 
+    /*
+     * A breakpoint is the one event that must not be looped past. Everything
+     * else here is the frame loop making progress; this is the caller asking
+     * to be let out of it, and running on would step over the instruction
+     * they stopped at.
+     */
+    if (event & EMULATOR_EVENT_BREAKPOINT) {
+      /* The frame this call was running is not finished, so the tick budget
+       * for it has not been spent. Handing the deadline back means the next
+       * call resumes this frame rather than starting the next one and running
+       * two frames' worth of ticks to catch up. */
+      e->deadline -= PPU_FRAME_TICKS;
+      return (uint32_t)event;
+    }
+
     if (past_deadline && (event & EMULATOR_EVENT_NEW_FRAME)) {
-      break;
+      return (uint32_t)event;
     }
 
     if (event & EMULATOR_EVENT_UNTIL_TICKS) {
       if (past_deadline) {
-        break;
+        return (uint32_t)event;
       }
       past_deadline = TRUE;
     }
@@ -319,6 +354,154 @@ int32_t gbsharp_get_rom_bank(gbsharp_emulator* e, uint16_t address) {
   /* The core already answers this for an address, including the -1 for one
    * that is not in the cartridge, so the facade only forwards it. */
   return emulator_get_rom_bank(e->core, address);
+}
+
+int32_t gbsharp_get_ram_bank(gbsharp_emulator* e) {
+  if (e == NULL || e->core == NULL || emulator_get_ext_ram_size(e->core) == 0) {
+    return -1;
+  }
+  return emulator_get_ext_ram_bank(e->core);
+}
+
+size_t gbsharp_get_rom_size(gbsharp_emulator* e) {
+  return e == NULL ? 0 : e->rom_size;
+}
+
+uint32_t gbsharp_step(gbsharp_emulator* e) {
+  if (e == NULL || e->core == NULL) {
+    return 0;
+  }
+  return (uint32_t)emulator_step(e->core);
+}
+
+bool gbsharp_get_registers(gbsharp_emulator* e, gbsharp_registers* out) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  if (e == NULL || e->core == NULL || out == NULL) {
+    return false;
+  }
+
+  Registers r = emulator_get_registers(e->core);
+
+  /* The core keeps the flags unpacked, one Bool each. The hardware packs them
+   * into the top nibble of F, and that is the form a caller can compare
+   * against a byte pushed on the stack, so pack them here. */
+  uint8_t f = (uint8_t)((r.F.Z ? 0x80 : 0) | (r.F.N ? 0x40 : 0) |
+                        (r.F.H ? 0x20 : 0) | (r.F.C ? 0x10 : 0));
+
+  out->a = r.A;
+  out->f = f;
+  out->af = (uint16_t)((r.A << 8) | f);
+  out->bc = r.BC;
+  out->de = r.DE;
+  out->hl = r.HL;
+  out->sp = r.SP;
+  out->pc = r.PC;
+  return true;
+#else
+  (void)e;
+  (void)out;
+  return false;
+#endif
+}
+
+int32_t gbsharp_add_breakpoint(gbsharp_emulator* e, uint16_t bank,
+                               uint16_t address) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  if (e == NULL || e->core == NULL) {
+    return -1;
+  }
+
+  int id = emulator_add_breakpoint(e->core, address, TRUE);
+  if (id < 0) {
+    return -1;
+  }
+
+  /* emulator_add_breakpoint records whichever bank happens to be mapped now.
+   * A caller placing a breakpoint from a linker map has not run the code yet,
+   * so the bank it wants is almost never the one that is mapped. */
+  emulator_set_breakpoint_bank(id, (u8)bank);
+  return id;
+#else
+  (void)e;
+  (void)bank;
+  (void)address;
+  return -1;
+#endif
+}
+
+void gbsharp_remove_breakpoint(int32_t id) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  if (id >= 0) {
+    emulator_remove_breakpoint((int)id);
+  }
+#else
+  (void)id;
+#endif
+}
+
+void gbsharp_clear_breakpoints(void) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  /* Downwards: removing the highest id is what lets the core shrink its own
+   * high water mark, and removing an invalid id is a no-op either way. */
+  for (int id = emulator_get_max_breakpoint_id() - 1; id >= 0; --id) {
+    emulator_remove_breakpoint(id);
+  }
+#endif
+}
+
+bool gbsharp_set_profiling_enabled(bool enabled) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  emulator_set_profiling_enabled(enabled ? TRUE : FALSE);
+  return enabled;
+#else
+  /* Reporting the state that was actually reached, which without hooks is
+   * always off. A caller that believed otherwise would read zeroes and
+   * conclude its game executes no code. */
+  (void)enabled;
+  return false;
+#endif
+}
+
+bool gbsharp_get_profiling_enabled(void) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  return emulator_get_profiling_enabled() == TRUE;
+#else
+  return false;
+#endif
+}
+
+void gbsharp_clear_profile(void) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  emulator_clear_profiling_counters();
+#endif
+}
+
+size_t gbsharp_read_profile(gbsharp_emulator* e, uint32_t* counts,
+                            uint32_t* cycles, size_t entries) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  if (e == NULL || e->core == NULL || entries == 0) {
+    return 0;
+  }
+
+  /* The core's arrays are MAXIMUM_ROM_SIZE regardless of the cartridge, so
+   * the cartridge is what bounds the copy. Past it every entry is zero and
+   * copying them would only be slower. */
+  size_t count = MIN(entries, e->rom_size);
+
+  if (counts != NULL) {
+    memcpy(counts, emulator_get_profiling_counters(), count * sizeof(uint32_t));
+  }
+  if (cycles != NULL) {
+    memcpy(cycles, emulator_get_profiling_cycles(), count * sizeof(uint32_t));
+  }
+  return count;
+#else
+  (void)e;
+  (void)counts;
+  (void)cycles;
+  (void)entries;
+  return 0;
+#endif
 }
 
 size_t gbsharp_save_ram_size(gbsharp_emulator* e) {

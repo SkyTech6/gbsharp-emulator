@@ -55,7 +55,7 @@ extern "C" {
  * and fetched independently, so "close enough" has to be a load failure with a
  * message rather than a crash three calls later.
  */
-#define GBSHARP_ABI_VERSION 2
+#define GBSHARP_ABI_VERSION 3
 
 #define GBSHARP_SCREEN_WIDTH 160
 #define GBSHARP_SCREEN_HEIGHT 144
@@ -65,6 +65,44 @@ extern "C" {
 #define GBSHARP_AUDIO_CHANNELS 2
 
 typedef struct gbsharp_emulator gbsharp_emulator;
+
+/*
+ * Why a run stopped, as a bitmask. More than one can be set: a frame that
+ * completes exactly as the deadline expires reports both.
+ *
+ * These mirror the core's own event values rather than including its header,
+ * which is the same rule the rest of this file follows. The mirroring is
+ * checked at compile time in gbsharp.c, so the two cannot drift apart quietly.
+ */
+typedef enum gbsharp_event {
+  GBSHARP_EVENT_NEW_FRAME = 0x1,
+  GBSHARP_EVENT_AUDIO_BUFFER_FULL = 0x2,
+  GBSHARP_EVENT_UNTIL_TICKS = 0x4,
+  GBSHARP_EVENT_BREAKPOINT = 0x8,
+  GBSHARP_EVENT_INVALID_OPCODE = 0x10,
+} gbsharp_event;
+
+/*
+ * The CPU's registers, flattened.
+ *
+ * A struct rather than fifteen accessors because a debugger reads all of them
+ * at once and a caller that read them one at a time could see a torn set. The
+ * layout is fixed as part of the ABI: fields are never reordered or removed,
+ * only appended, and appending bumps GBSHARP_ABI_VERSION like anything else.
+ *
+ * `f` is the flags register packed as the hardware packs it, ZNHC in bits 7
+ * to 4, so a caller can compare it against a byte read from a stack frame.
+ */
+typedef struct gbsharp_registers {
+  uint16_t af;
+  uint16_t bc;
+  uint16_t de;
+  uint16_t hl;
+  uint16_t sp;
+  uint16_t pc;
+  uint8_t a;
+  uint8_t f;
+} gbsharp_registers;
 
 /* Ordered as the joypad register reads them: P14 selects the direction keys,
  * P15 the buttons, low nibble in this order within each. */
@@ -138,8 +176,12 @@ GBSHARP_API void gbsharp_reset(gbsharp_emulator*);
  * A ROM may turn the display off, in which case no frame is ever completed.
  * That is bounded rather than waited on: the call gives up after one extra
  * frame's ticks and leaves the framebuffer as the PPU last left it.
+ *
+ * Returns why it stopped, as gbsharp_event flags. A player can ignore it; a
+ * caller with breakpoints set cannot, because a frame that stopped early
+ * stopped somewhere, and the framebuffer is then a partial frame.
  */
-GBSHARP_API void gbsharp_run_frame(gbsharp_emulator*);
+GBSHARP_API uint32_t gbsharp_run_frame(gbsharp_emulator*);
 
 /*
  * GBSHARP_SCREEN_WIDTH * GBSHARP_SCREEN_HEIGHT pixels, row major from the top
@@ -206,6 +248,87 @@ GBSHARP_API void gbsharp_write_memory(gbsharp_emulator*, uint16_t address,
  */
 GBSHARP_API uint16_t gbsharp_get_pc(gbsharp_emulator*);
 GBSHARP_API int32_t gbsharp_get_rom_bank(gbsharp_emulator*, uint16_t address);
+
+/*
+ * The cartridge RAM bank currently mapped at 0xa000, or -1 when the cartridge
+ * has no RAM. With the bank at 0x4000 this is the whole of the MBC state a
+ * caller can act on; everything else an MBC holds is latched input to these
+ * two.
+ */
+GBSHARP_API int32_t gbsharp_get_ram_bank(gbsharp_emulator*);
+
+/* Bytes of cartridge ROM, after the padding gbsharp_load_rom applied. This is
+ * how many entries gbsharp_read_profile can fill. */
+GBSHARP_API size_t gbsharp_get_rom_size(gbsharp_emulator*);
+
+/*
+ * All the registers at one instant. Returns false, leaving `out` untouched,
+ * when there is no cartridge or the library is the fast flavour.
+ *
+ * The whole set is read at once because a caller that read them one at a time
+ * could see a torn set, and because a register dump is what a caller wants.
+ */
+GBSHARP_API bool gbsharp_get_registers(gbsharp_emulator*, gbsharp_registers* out);
+
+/*
+ * Executes one instruction and returns why it stopped, as gbsharp_event flags.
+ *
+ * Unlike the rest of the debug surface this works in both flavours, because
+ * the core's stepping is in emulator.c. Breakpoints are what need the hooks,
+ * so in the fast flavour a step is simply a step.
+ *
+ * The framebuffer is not complete after a step. Read it only after a run that
+ * reported GBSHARP_EVENT_NEW_FRAME.
+ */
+GBSHARP_API uint32_t gbsharp_step(gbsharp_emulator*);
+
+/*
+ * Breaks at `address` in ROM bank `bank`, returning an id to remove it with,
+ * or -1 when there is no room or no instrumentation.
+ *
+ * The bank is given rather than inferred, so a breakpoint can be set on code
+ * in a bank that is not currently mapped — which is the normal case, because a
+ * caller placing one from a linker map has not run the code yet. For an
+ * address outside the cartridge the bank is ignored.
+ *
+ * Breakpoints belong to the library rather than to an emulator, because that
+ * is where the core keeps them. A process running two emulators shares them.
+ */
+GBSHARP_API int32_t gbsharp_add_breakpoint(gbsharp_emulator*, uint16_t bank,
+                                           uint16_t address);
+GBSHARP_API void gbsharp_remove_breakpoint(int32_t id);
+GBSHARP_API void gbsharp_clear_breakpoints(void);
+
+/*
+ * Per address execution counts and tick costs for the cartridge, gathered
+ * while profiling is enabled. Both are zero in the fast flavour, where
+ * enabling profiling does nothing and reports that it did nothing.
+ *
+ * Profiling is off by default and costs something to leave on, so it is a
+ * switch rather than a permanent expense.
+ */
+GBSHARP_API bool gbsharp_set_profiling_enabled(bool enabled);
+GBSHARP_API bool gbsharp_get_profiling_enabled(void);
+GBSHARP_API void gbsharp_clear_profile(void);
+
+/*
+ * Copies profile data for the first `entries` ROM addresses, returning how
+ * many it wrote — zero without instrumentation. Either destination may be
+ * null to ask for only the other.
+ *
+ * Indexed by ROM address, meaning the offset into the cartridge file, which is
+ * bank * 0x4000 + (address & 0x3fff). That is the same coordinate a linker map
+ * uses, so a caller can add these up per symbol without knowing anything about
+ * the emulator.
+ *
+ * `counts` says how often the instruction at an address ran. `cycles` says how
+ * many ticks were spent there, measured to the start of the next instruction,
+ * so interrupt dispatch is billed to the instruction it interrupted. The two
+ * rank code differently and the difference is the point: a rarely called
+ * routine can dominate a frame.
+ */
+GBSHARP_API size_t gbsharp_read_profile(gbsharp_emulator*, uint32_t* counts,
+                                        uint32_t* cycles, size_t entries);
 
 /*
  * Bytes of battery backed cartridge RAM, or zero when the cartridge has no
