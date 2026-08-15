@@ -4825,7 +4825,9 @@ Result init_emulator(Emulator* e, const EmulatorInit* init) {
       0xc0, 0xde, 0xf0, 0x0d, 0xbe, 0xef, 0xfe, 0xed,
   };
   CHECK(SUCCESS(get_cart_infos(e)));
-  log_cart_info(e->cart_info);
+  if (!init->quiet_cart_info) {
+    log_cart_info(e->cart_info);
+  }
   MMAP_STATE.rom_base[0] = 0;
   MMAP_STATE.rom_base[1] = 1 << ROM_BANK_SHIFT;
   IS_CGB = !init->force_dmg && (e->cart_info->cgb_flag == CGB_FLAG_SUPPORTED ||
@@ -4965,6 +4967,30 @@ static Result set_rom_file_data(Emulator* e, const FileData* file_data) {
   e->file_data = *file_data;
   return OK;
   ON_ERROR_RETURN;
+}
+
+size_t emulator_get_ext_ram_size(Emulator* e) {
+  return EXT_RAM.size;
+}
+
+Bool emulator_has_battery(Emulator* e) {
+  return EXT_RAM.battery_type == BATTERY_TYPE_WITH_BATTERY;
+}
+
+int emulator_get_ext_ram_bank(Emulator* e) {
+  /* ext_ram_base is a byte offset into cartridge RAM, built by
+   * set_ext_ram_bank as the bank shifted up by the bank size, so shifting it
+   * back is exact. */
+  return MMAP_STATE.ext_ram_base >> EXT_RAM_BANK_SHIFT;
+}
+
+int emulator_get_rom_bank(Emulator* e, Address addr) {
+  int region = addr >> ROM_BANK_SHIFT;
+  if (region < 2) {
+    return MMAP_STATE.rom_base[region] >> ROM_BANK_SHIFT;
+  } else {
+    return -1;
+  }
 }
 
 Bool emulator_was_ext_ram_updated(Emulator* e) {

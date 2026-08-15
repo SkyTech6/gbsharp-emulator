@@ -1,0 +1,293 @@
+# Copyright (C) 2026 GB# contributors
+#
+# This software may be modified and distributed under the terms
+# of the MIT license.  See the LICENSE file for details.
+#
+# Publishes the GB# runtime for every platform GB# supports, on a tag.
+#
+# GB# consumes these archives through tools/get-emulator.ps1, which verifies a
+# SHA256 from tools/emulator.lock.json before it will use one. Generating that
+# lock file here, from the archives that were actually uploaded, is what keeps
+# the two repositories honest: bumping the pinned version in GB# is copying one
+# file rather than five hashes by hand.
+name: GB# runtime release
+
+# Tags are namespaced because the fork inherited upstream's v* tags, so v*
+# means "a binjgb release" here and gbsharp-v* means "a GB# runtime release".
+on:
+  push:
+    tags:
+      - 'gbsharp-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish'
+        required: true
+
+permissions:
+  contents: write
+
+# The same emscripten upstream's own CI pins.
+env:
+  EM_VERSION: 4.0.8
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-x64
+            os: macos-15-intel
+          - rid: osx-arm64
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          # imgui, because upstream's debugger target joins the build as soon
+          # as SDL is found, and the Player needs SDL.
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # SDL2 is here for the Player alone. The runtime libraries must not link
+      # it, which scripts/check_gbsharp_library.py verifies below on the very
+      # machine where SDL is available to link against.
+      - name: install sdl2 (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsdl2-dev
+
+      - name: install sdl2 (macos)
+        if: runner.os == 'macOS'
+        run: brew install SDL2
+
+      - name: install sdl2 (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sSL -o sdl2.zip \
+            https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-devel-2.30.9-VC.zip
+          unzip -q sdl2.zip
+          # pwd -W, not $PWD: this step runs in bash and CMake runs in
+          # PowerShell, so the path has to leave here as D:/a/... rather than
+          # as /d/a/..., which CMake would silently fail to find anything under.
+          echo "SDL2_ROOT_DIR=$(pwd -W)/SDL2-2.30.9" >> $GITHUB_ENV
+
+      - name: cmake
+        run: >
+          cmake -S . -B out -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=install
+          ${{ runner.os == 'Windows' && format('-DSDL2_ROOT_DIR={0}', env.SDL2_ROOT_DIR) || '' }}
+
+      - name: build both flavours
+        run: >
+          cmake --build out --config Release
+          --target gbsharp_emulator gbsharp_emulator_debug
+          gbsharp_emulator_static gbsharp_emulator_debug_static
+
+      # The stub `gbsharp publish` appends a game to. Shipped in the same
+      # archive as the runtime, so that fetching a platform's runtime is also
+      # fetching its player and one lock file covers both.
+      - name: build the player
+        run: cmake --build out --config Release --target gbsharp-player
+
+      # The components, not everything: upstream's own executables are built by
+      # the same project and belong to nothing GB# ships.
+      - name: install
+        run: |
+          cmake --install out --config Release --component gbsharp
+          cmake --install out --config Release --component gbsharp-player
+
+      - name: check the boundary
+        shell: bash
+        run: |
+          shopt -s nullglob
+          python scripts/check_gbsharp_library.py \
+            install/bin/*gbsharp_emulator*.dll \
+            install/bin/*gbsharp_emulator*.so \
+            install/bin/*gbsharp_emulator*.dylib
+
+      # An archive without a Player is one `gbsharp publish` cannot use, and the
+      # way that happens is SDL quietly not being found, which skips the target
+      # rather than failing the build. Caught here instead of in a game.
+      - name: check the player is in the archive
+        shell: bash
+        run: |
+          test -n "$(find install/bin -name 'gbsharp-player*' -type f)"
+
+      # Proves the stub in this archive starts and draws before it is published
+      # to anyone. A stub that cannot play a ROM cannot play a published game
+      # either, and finding that out here is much cheaper than finding it out
+      # in somebody's published game.
+      - name: check the player runs
+        if: runner.os != 'macOS'
+        shell: bash
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          player=$(find install/bin -name 'gbsharp-player*' -type f | head -1)
+          "$player" test/blargg/cpu_instrs.gb --frames 60 --screenshot screen.bmp
+          test -s screen.bmp
+
+      # Debug info is not shipped: the archives are fetched by every GB#
+      # contributor, so size is a cost they all pay.
+      - name: strip
+        if: runner.os != 'Windows'
+        run: find install -type f \( -name '*.so' -o -name '*.dylib' -o -name 'gbsharp-player' \) -exec strip -x {} +
+
+      # Zip on Windows and tar.gz elsewhere, matching the GBDK archives that
+      # tools/get-gbdk.ps1 already knows how to unpack.
+      - name: archive
+        shell: bash
+        run: |
+          cd install
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "../gbsharp-emulator-${{ matrix.rid }}.zip" .
+          else
+            tar -czf "../gbsharp-emulator-${{ matrix.rid }}.tar.gz" .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gbsharp-emulator-${{ matrix.rid }}
+          path: gbsharp-emulator-${{ matrix.rid }}.*
+          if-no-files-found: error
+
+  # The web runtime is one archive rather than one per platform: wasm is the
+  # same bytes everywhere, which is most of the point of it.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install packages
+        run: sudo apt-get install ninja-build
+
+      - name: setup cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.EM_CACHE_FOLDER }}
+          key: ${{ env.EM_VERSION }}-${{ runner.os }}
+
+      - name: emsdk install
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EM_VERSION }}
+          actions-cache-folder: ${{ env.EM_CACHE_FOLDER }}
+
+      - name: cmake
+        run: >
+          emcmake cmake -S . -B out-web -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=install-web
+
+      - name: build
+        run: cmake --build out-web --target gbsharp_web
+
+      - name: install
+        run: cmake --install out-web --component gbsharp-web
+
+      # Same check as CI, on the artifact about to be published rather than on
+      # a build of the same commit.
+      - name: check the wasm emulates
+        working-directory: web
+        run: |
+          actual=$(node check-wasm.mjs ../out-web/gbsharp.js ../test/blargg/cpu_instrs.gb 1780)
+          test "$actual" = "58d90d7561c7d2de728b999b8d5dd74bb6e86598"
+
+      - name: archive
+        run: tar -czf gbsharp-emulator-web.tar.gz -C install-web .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gbsharp-emulator-web
+          path: gbsharp-emulator-web.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: [build, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: archives
+          merge-multiple: true
+
+      - name: generate the lock file
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, glob
+
+          tag = os.environ['TAG']
+          repository = os.environ['REPOSITORY']
+          base = 'https://github.com/%s/releases/download/%s/' % (repository, tag)
+
+          assets = {}
+          for path in sorted(glob.glob('archives/gbsharp-emulator-*')):
+            name = os.path.basename(path)
+            # gbsharp-emulator-<rid>.<ext>, where <rid> has no dots in it.
+            rid = name[len('gbsharp-emulator-'):].split('.')[0]
+            with open(path, 'rb') as f:
+              digest = hashlib.sha256(f.read()).hexdigest()
+            assets[rid] = {
+              'url': base + name,
+              'sha256': digest,
+              'size': os.path.getsize(path),
+            }
+
+          lock = {
+            '$comment': 'Pinned GB# emulator runtime, from the gbsharp-emulator'
+                        ' fork of binjgb. Generated by that repository\'s release'
+                        ' workflow and copied here verbatim, so bumping the'
+                        ' version is one file rather than five hashes by hand.'
+                        ' See thesis section 21 (Build Reproducibility).',
+            'version': tag[len('gbsharp-v'):] if tag.startswith('gbsharp-v') else tag,
+            'releaseUrl': 'https://github.com/%s/releases/tag/%s' % (repository, tag),
+            'assets': assets,
+          }
+
+          with open('archives/emulator.lock.json', 'w') as f:
+            json.dump(lock, f, indent=2)
+            f.write('\n')
+
+          print(json.dumps(lock, indent=2))
+          PY
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" archives/* --clobber

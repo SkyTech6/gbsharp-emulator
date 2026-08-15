@@ -1,5 +1,6 @@
 /bin
 /out
+/out-web
 /emscripten
 /test/mooneye-gb
 /test/mooneye-gb-wp

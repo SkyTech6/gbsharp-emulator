@@ -184,3 +184,8 @@ else (EMSCRIPTEN)
     LINK_DEPENDS "${EXPORTED_JSON}"
   )
 endif ()
+
+# The GB# runtime. Kept in its own file so that this one stays as upstream
+# wrote it. It builds native libraries and the Player, or a wasm module,
+# depending on which compiler is driving.
+include(gbsharp)

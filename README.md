@@ -1,281 +1,102 @@
-[![Github CI Status](https://github.com/binji/binjgb/workflows/CI/badge.svg)](https://github.com/binji/binjgb)
+# gbsharp-emulator
 
-# binjgb
+The Game Boy runtime behind [GB#](https://github.com/SkyTech6/GBSharp), a C# to
+Game Boy compiler.
 
-A simple GB/GBC emulator.
+This repository is a fork of **[binjgb](https://github.com/binji/binjgb)** by
+Ben Smith, MIT licensed. The emulation is his work; see [NOTICE](NOTICE) for the
+attribution that any distribution embedding this runtime must carry, including
+games published by GB#.
 
-## Features
+## What this fork is for
 
-* [Runs in the browser using WebAssembly](https://binji.github.io/binjgb)
-* Hacky-but-passable **CGB support**!
-* Mostly-there **Super GB support**!
-* Cycle accurate, passes many timing tests (see below)
-* Supports MBC1, MBC1M, MMM01, MBC2, MBC3, MBC5 and HuC1
-* Save/load battery backup
-* Save/load emulator state to file
-* **Fast-forward**, pause and step one frame
-* **Rewind** and seek to specific cycle
-* Disable/enable each audio channel
-* Disable/enable BG, Window and Sprite layers
-* Convenient Python test harness using hashes to validate
-* (WIP) **Debugger** with various visualizations (see below)
+GB# needs an emulator it can embed rather than an emulator it can run: one that
+loads a ROM from memory, advances exactly one frame when asked, and reports
+where the CPU is so a running address can be turned back into the C# line that
+produced it. binjgb already emulates; what it did not have was a boundary a host
+could link against. That boundary is what this fork adds.
 
-## DMG Screenshots
+* **A stable C ABI**, `src/gbsharp.h`. `gbsharp_emulator` is opaque and nothing
+  from `emulator.h` appears in the header, so the same P/Invoke declarations
+  serve every consumer and the core underneath can change without the C# side
+  noticing. A ROM arrives as bytes, never as a path — the core opens no files,
+  so storage policy stays with the host. Audio is pulled rather than pushed from
+  a device callback, which is what keeps a run deterministic.
+* **Libraries with no SDL, OpenGL or imgui in the link**, in two flavours:
+  `gbsharp_emulator` (plain) and `gbsharp_emulator_debug` (instrumented, with
+  breakpoints and a cycle-attributing profiler). Instrumentation is a
+  compile-time choice upstream, so it has to be two libraries;
+  `gbsharp_has_debug_support` says which one loaded. GB# ships the fast one to
+  players and the hooked one to tooling.
+* **The GB# Player** (`player/`), what a published GB# game actually is: a
+  window, a sound device, a joypad, and nothing else. `gbsharp publish` copies
+  this stub and appends the ROM and window settings to it, so publishing needs
+  no C toolchain on the author's machine. The payload format is documented in
+  `player/payload.h`.
+* **The web runtime** (`web/gbsharp-runtime.js`), the same sources through
+  emscripten, with one JS method per entry point of `gbsharp.h` under the same
+  name — so a host written against the C ABI and one written against the browser
+  module are the same program.
 
-![Bionic Commando](/images/bionic.png)
-![Donkey Kong](/images/dk.png)
-![Kirby's Dreamland 2](/images/kirby2.png)
-![Mole Mania](/images/mole.png)
-![Mario's Picross](/images/picross.png)
-![Trip World](/images/trip.png)
-![Wario Land](/images/wario.png)
-![Game Boy Wars](/images/wars.png)
-![Is That a Demo in Your Pocket?](/images/pocket.png)
+A handful of small accessors were added to the core itself (ROM and ext-RAM bank,
+PC, ext-RAM size, battery presence, breakpoint bank selection, per-instruction
+cycle counts). They expose state binjgb already maintained. Everything else in
+`src/` is upstream's, with its copyright headers untouched; files added here
+carry their own.
 
-## CGB Screenshots
+Upstream's own application, debugger and wasm build still build and are still
+covered by CI. If you want a Game Boy emulator to *use*, use
+[binjgb](https://github.com/binji/binjgb) — it is the better front end and it is
+where fixes to the emulation should go.
 
-![Dragon Warrior](/images/dw.png)
-![Hamtaro](/images/ham.png)
-![Metal Gear Solid](/images/mgs.png)
-![It Came From Planet Zilog](/images/pz.png)
-![Survival Kids](/images/sk.png)
-![Aevilia](/images/aevilia.png)
-![Toki Tori](/images/toki.png)
-![Wario 3](/images/wario3.png)
+## Consuming it
 
-## SGB Screenshots
-
-![Donkey Kong](/images/dk-sgb.png)
-![Kirby's Dreamland 2](/images/kirby2-sgb.png)
-![Mole Mania](/images/mole-sgb.png)
-
-## Debugger Screenshots
-
-![Debugger](/images/debugger.png)
-![OBJ](/images/obj-window.png)
-![Map](/images/map-window.png)
-![Tile Data](/images/tiledata-window.png)
-![Breakpoints](/images/breakpoint.png)
-
-## Embedding binjgb in your own web page
-
-Copy the folowing files to your webserver:
-* `docs/binjgb.js`
-* `docs/binjgb.wasm`
-* `docs/simple.html`
-* `docs/simple.js`
-* `docs/simple.css`
-* your `.gb` or `.gbc` file
-
-`simple.html` will fill the entire page, so if you don't want that, you should put it into an
-[iframe](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe).
-
-The emulator will also display an on-screen gamepad if the device supports
-touch events.
-
-You can configure the emulator by editing `simple.js`:
-
-| Constant name | Description |
-| - | - |
-| ROM_FILENAME | The path to your `.gb` or `.gbc` file |
-| ENABLE_REWIND | Whether to enable rewinding with the backspace key |
-| ENABLE_PAUSE | Whether to enable pausing with the space bar |
-| ENABLE_SWITCH_PALETTES | Whether to enable switching palettes with `[` and `]` |
-| OSGP_DEADZONE | How wide to make the deadzone for the onscreen gamepad, as a decimal between between `0` and `1` |
-| CGB_COLOR_CURVE | How to tint the CGB colors so they look more like a real CGB. <ul><li>0: none</li><li>1: Use Sameboy's "Emulate Hardware" colors</li><li>2: Use Gambatte/Gameboy Online colors</li></ul> |
-| DEFAULT_PALETTE_IDX | Which palette to use by default, as an index into `PALETTES` |
-| PALETTES | An array of built-in palette IDs, between `0` and `83`. Useful if you only want the player to switch between a few of the built-in palettes |
-
-See `simple.js` for more info.
-
-## Cloning
-
-Use a recursive clone, to include the submodules:
-
-```
-$ git clone --recursive https://github.com/binji/binjgb
-```
-
-If you've already cloned without initializing submodules, you can run this:
-
-```
-$ git submodule update --init
-```
+Almost nobody needs to build this. GB# downloads a tagged release
+(`gbsharp-v*`), verifies it against the `emulator.lock.json` published with it,
+and loads the library. Build from source only when changing the runtime itself.
 
 ## Building
 
-Requires [CMake](https://cmake.org) and
-[SDL2](http://libsdl.org/download-2.0.php). Debugger uses
-[dear imgui,](https://github.com/ocornut/imgui) (included as a git submodule).
-
-### Building (Linux/Mac)
-
-If you run `make`, it will run CMake for you and put the output in the `bin/`
-directory.
+Requires [CMake](https://cmake.org). SDL2 is needed only for the Player and for
+upstream's own application; the libraries build without it.
 
 ```
-$ make
-$ bin/binjgb foo.gb
+$ git clone --recursive https://github.com/SkyTech6/gbsharp-emulator
+$ mkdir build && cd build
+$ cmake .. && cmake --build .
 ```
 
-You can also just use cmake directly:
+On Windows, point CMake at SDL2 if you want the Player:
 
 ```
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
+> cmake .. -DSDL2_ROOT_DIR="C:\path\to\SDL\"
 ```
 
-### Building (Windows)
+For the web runtime, build with the emscripten toolchain; `web/check-wasm.mjs`
+runs a ROM through the resulting module under node and prints the screen hash in
+the format upstream's `tester.c` writes.
 
-When building on Windows, you'll probably have to set the SDL2 directory:
+`scripts/check_gbsharp_library.py` scans a built library for SDL, OpenGL and
+imgui symbols and for the full facade export list. It is what enforces the
+no-SDL boundary rather than merely documenting it.
 
-```
-> mkdir build
-> cd build
-> cmake .. -G "Visual Studio 15 2017" -DSDL2_ROOT_DIR="C:\path\to\SDL\"
-```
+## Tests
 
-Then load this solution into Visual Studio and build it. Make sure to build the
-`INSTALL` target, so the exectuables are built to the `bin` directory.
-
-### Building WebAssembly
-
-You can build binjgb as a WebAssembly module. You'll need an incoming build of
-emscripten. See https://github.com/kripken/emscripten/wiki/WebAssembly and
-http://kripken.github.io/emscripten-site/docs/building_from_source/index.html#installing-from-source.
-
-Put a symlink to Emscripten in the `emscripten` directory, then run make.
+`scripts/build_tests.py` downloads and builds the test suites;
+`scripts/tester.py` runs them, filtered by a command line argument:
 
 ```
-$ ln -s ${PATH_TO_EMSCRIPTEN} emscripten
-$ make wasm
-```
-Or set Makefile variables via command line:
-```
-$ make wasm EMSCRIPTEN_CMAKE="/path/to/Emscripten.cmake"
-```
-
-### Changing the Build Configuration
-
-If you change the build config (e.g. update the submodules), you may need to run CMake again.
-The simplest way to do this is to remove the `out/` directory.
-
-```
-$ rm -rf out/
-$ make
-```
-
-## Running
-
-```
-$ bin/binjgb <filename>
-$ bin/binjgb-debugger <filename>
-```
-
-Keys:
-
-| Action | Key |
-| --- | --- |
-| DPAD-UP | <kbd>↑</kbd> |
-| DPAD-DOWN | <kbd>↓</kbd> |
-| DPAD-LEFT | <kbd>←</kbd> |
-| DPAD-RIGHT | <kbd>→</kbd> |
-| B | <kbd>Z</kbd> |
-| A | <kbd>X</kbd> |
-| START | <kbd>Enter</kbd> |
-| SELECT | <kbd>Tab</kbd> |
-| Quit | <kbd>Esc</kbd> |
-| Save state | <kbd>F6</kbd> |
-| Load state | <kbd>F9</kbd> |
-| Toggle fullscreen | <kbd>F11</kbd> |
-| Disable audio channel 1-4 | <kbd>1</kbd>-<kbd>4</kbd> |
-| Disable BG layer | <kbd>B</kbd> |
-| Disable Window layer | <kbd>W</kbd> |
-| Disable OBJ (sprites) | <kbd>O</kbd> |
-| Fast-forward | <kbd>Lshift</kbd> |
-| Rewind | <kbd>Backspace</kbd> |
-| Pause | <kbd>Space</kbd> |
-| Step one frame | <kbd>N</kbd> |
-
-## INI file
-
-Binjgb tries to read from `binjgb.ini` on startup for configuration. The
-following keys are supported:
-
-```
-# Load this file automatically on startup
-autoload=filename.gb
-
-# Set the audio frequency in Hz
-audio-frequency=44100
-
-# Set the number of audio frames per buffer
-# lower=better latency, more pops/clicks
-# higher=worse latency, fewer pops/clicks
-audio-frames=2048
-
-# Set to the index of a builtin palette
-# (valid numbers are 0..82)
-builtin-palette=0
-
-# Force the emulator to run in DMG (original gameboy) mode.
-# 0=Don't force DMG
-# 1=Force DMG
-force-dmg=0
-
-# The number of video frames to display before storing a full dump of
-# the emulator state in the rewind buffer. Probably best to leave this
-# alone
-rewind-frames-per-base-state=45
-
-# The number of megabytes to allocate to the rewind buffer.
-# lower=less memory usage, less rewind time
-# higher=more memory usage, more rewind time
-rewind-buffer-capacity-megabytes=32
-
-# The speed at which to rewind the game, as a scale.
-# 1=rewind at 1x
-# 2=rewind at 2x
-# etc.
-rewind-scale=1.5
-
-# How much to scale the emulator window at startup.
-render-scale=4
-
-# What to set the random seed to when initializing memory. Using 0
-# disables memory randomization.
-random-seed=0
-
-# Whether to display the SGB border or not.
-# 0=Don't display SGB border
-# 1=Display SGB border, even if it doesn't exist.
-sgb-border=0
-```
-
-The INI file is loaded before parsing the command line flags, so you can use
-the command line to override the values in the INI file.
-
-## Running tests
-
-Run `scripts/build_tests.py` to download and build the necessary testsuites.
-This works on Linux and Mac, not sure about Windows.
-
-`scripts/tester.py` will only run the tests that match a filter passed on the
-command line. Some examples:
-
-```
-# Run all tests
-$ scripts/tester.py
-
-# Run all tests mooneye tests
+$ scripts/tester.py          # everything
 $ scripts/tester.py mooneye
-
-# Run all gpu tests
-$ scripts/tester.py gpu
 ```
 
-## Test status
+The facade reproduces every screen hash in `scripts/test.json` for the blargg
+suite byte for byte, native and wasm alike, which is the evidence that adding
+the ABI did not change emulation. [Test results](test_results.md) are upstream's
+and still hold.
 
-[See test results](test_results.md)
+## License
+
+MIT, unchanged from upstream. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+    Copyright (c) 2016 Ben Smith
