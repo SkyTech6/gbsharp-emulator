@@ -22,7 +22,7 @@ const SCREEN_WIDTH = 160;
 const SCREEN_HEIGHT = 144;
 const AUDIO_FREQUENCY = 44100;
 const AUDIO_CHANNELS = 2;
-const ABI_VERSION = 3;
+const ABI_VERSION = 4;
 
 /* Audio frames pulled per call. One video frame is about 736 of them. */
 const AUDIO_PULL_FRAMES = 2048;
@@ -211,6 +211,14 @@ export const Button = Object.freeze({
   B: 5,
   Select: 6,
   Start: 7,
+});
+
+/* gbsharp_rom_usage, the flags in the array readRomUsage fills. A byte with
+ * none of them set was never reached at all. */
+export const RomUsage = Object.freeze({
+  Code: 0x1,
+  Data: 0x2,
+  CodeStart: 0x4,
 });
 
 /* gbsharp_event, the flags runFrame and step return. */

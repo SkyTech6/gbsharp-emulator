@@ -55,7 +55,7 @@ extern "C" {
  * and fetched independently, so "close enough" has to be a load failure with a
  * message rather than a crash three calls later.
  */
-#define GBSHARP_ABI_VERSION 3
+#define GBSHARP_ABI_VERSION 4
 
 #define GBSHARP_SCREEN_WIDTH 160
 #define GBSHARP_SCREEN_HEIGHT 144
@@ -81,6 +81,21 @@ typedef enum gbsharp_event {
   GBSHARP_EVENT_BREAKPOINT = 0x8,
   GBSHARP_EVENT_INVALID_OPCODE = 0x10,
 } gbsharp_event;
+
+/*
+ * What the cartridge's bytes turned out to be, as flags per ROM address.
+ *
+ * A byte can be both code and data, and one that is neither was never touched
+ * at all — which is the flag nobody sets and the answer most worth having,
+ * because it is how a ROM says which of its code a play session never reached.
+ *
+ * Mirrors the core's own values, checked at compile time in gbsharp.c.
+ */
+typedef enum gbsharp_rom_usage {
+  GBSHARP_ROM_USAGE_CODE = 0x1,       /* Executed, or part of an instruction that was. */
+  GBSHARP_ROM_USAGE_DATA = 0x2,       /* Read as data. */
+  GBSHARP_ROM_USAGE_CODE_START = 0x4, /* The first byte of an executed instruction. */
+} gbsharp_rom_usage;
 
 /*
  * The CPU's registers, flattened.
@@ -329,6 +344,24 @@ GBSHARP_API void gbsharp_clear_profile(void);
  */
 GBSHARP_API size_t gbsharp_read_profile(gbsharp_emulator*, uint32_t* counts,
                                         uint32_t* cycles, size_t entries);
+
+/*
+ * Which of the cartridge's bytes were reached, as gbsharp_rom_usage flags per
+ * ROM address. Zero everywhere in the fast flavour.
+ *
+ * Unlike profiling this is on by default, because it is what the core does
+ * anyway in the hook it is already running, and because the question it
+ * answers — what did this session never touch — is one a caller cannot ask
+ * retroactively if nobody was recording.
+ *
+ * Reading and clearing both require it to be on, which is the core's own
+ * precondition rather than one added here.
+ */
+GBSHARP_API bool gbsharp_set_rom_usage_enabled(bool enabled);
+GBSHARP_API bool gbsharp_get_rom_usage_enabled(void);
+GBSHARP_API void gbsharp_clear_rom_usage(void);
+GBSHARP_API size_t gbsharp_read_rom_usage(gbsharp_emulator*, uint8_t* usage,
+                                          size_t entries);
 
 /*
  * Bytes of battery backed cartridge RAM, or zero when the cartridge has no

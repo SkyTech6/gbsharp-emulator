@@ -29,6 +29,12 @@ GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_BREAKPOINT ==
 GBSHARP_STATIC_ASSERT((int)GBSHARP_EVENT_INVALID_OPCODE ==
                       EMULATOR_EVENT_INVALID_OPCODE);
 
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+GBSHARP_STATIC_ASSERT((int)GBSHARP_ROM_USAGE_CODE == ROM_USAGE_CODE);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_ROM_USAGE_DATA == ROM_USAGE_DATA);
+GBSHARP_STATIC_ASSERT((int)GBSHARP_ROM_USAGE_CODE_START == ROM_USAGE_CODE_START);
+#endif
+
 /*
  * How much audio the core is allowed to buffer, in frames of one sample per
  * channel. One video frame is PPU_FRAME_TICKS worth, which at 44100Hz is a
@@ -499,6 +505,52 @@ size_t gbsharp_read_profile(gbsharp_emulator* e, uint32_t* counts,
   (void)e;
   (void)counts;
   (void)cycles;
+  (void)entries;
+  return 0;
+#endif
+}
+
+bool gbsharp_set_rom_usage_enabled(bool enabled) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  emulator_set_rom_usage_enabled(enabled ? TRUE : FALSE);
+  return enabled;
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+bool gbsharp_get_rom_usage_enabled(void) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  return emulator_get_rom_usage_enabled() == TRUE;
+#else
+  return false;
+#endif
+}
+
+void gbsharp_clear_rom_usage(void) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  /* The core asserts on this rather than checking it, so the check is here. */
+  if (emulator_get_rom_usage_enabled()) {
+    emulator_clear_rom_usage();
+  }
+#endif
+}
+
+size_t gbsharp_read_rom_usage(gbsharp_emulator* e, uint8_t* usage,
+                              size_t entries) {
+#if defined(GBSHARP_DEBUG_FLAVOUR)
+  if (e == NULL || e->core == NULL || usage == NULL || entries == 0 ||
+      !emulator_get_rom_usage_enabled()) {
+    return 0;
+  }
+
+  size_t count = MIN(entries, e->rom_size);
+  memcpy(usage, emulator_get_rom_usage(), count);
+  return count;
+#else
+  (void)e;
+  (void)usage;
   (void)entries;
   return 0;
 #endif

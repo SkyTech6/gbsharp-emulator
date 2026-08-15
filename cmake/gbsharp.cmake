@@ -73,6 +73,10 @@ if (EMSCRIPTEN)
     _gbsharp_get_profiling_enabled
     _gbsharp_clear_profile
     _gbsharp_read_profile
+    _gbsharp_set_rom_usage_enabled
+    _gbsharp_get_rom_usage_enabled
+    _gbsharp_clear_rom_usage
+    _gbsharp_read_rom_usage
     _gbsharp_save_ram_size
     _gbsharp_read_save_ram
     _gbsharp_write_save_ram
